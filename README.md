@@ -78,3 +78,34 @@ python nifty_options_trading/evaluate_global.py "NIFTY 16 Apr 23900 CE"
 ```powershell
 python nifty_options_trading/evaluate_contract_V2.py "HINAER 28 Apr 4600 CE"
 ```
+
+
+---
+
+## 📁 Complete File Manifest
+
+A detailed index of exactly what every Python file does within the `nifty_options_trading/` package:
+
+### The Evaluator Engines
+- `evaluate_global.py` : **Global Macro Confluence Evaluator**. Integrates local Indian setups with global US/Asian market sentiment to generate macro-overnight convictions.
+- `evaluate_btst.py` : **End-Of-Day BTST Engine**. Focuses strictly on the physical footprint of the 1-Day closing strength to project opening gap-ups.
+- `evaluate_contract_V2.py` : **Intraday Engine V2**. Employs fixed percentage targets (+5%, +10%) alongside strict -3% momentum traps.
+- `evaluate_contract_V1.py` : **Intraday Engine V1**. Utilizes dynamically shifting stop-loss logic generated natively by the Average True Range (ATR).
+- `evaluate_contract.py` : **Base Pricing Engine**. Establishes terminal grid-matrices mapping available capital to physical option lots.
+
+### The Background Monitors
+- `unified_monitor.py` : **Live Pipeline Monitor**. Orchestrates multiple ticker tracking loops silently in the background.
+- `analytics_monitor.py` : **Background Signal Scanner**. Used specifically for scraping continuous data from multi-timeframe analytical models.
+
+### Core Calculation Logic Scripts
+- `options_engine.py` : **Breeze API Communicator**. Downloads deep dataframe slices directly from ICICI server structures.
+- `theta_defense.py` : **DTE Protection Script**. Identifies Options contract validity to protect the trader from bleeding Time/Theta decay.
+- `max_pain.py` : **Max Pain Calculator**. Extrapolates aggregate Open Interest data to estimate the expiration "pain" threshold for option sellers.
+- `expiry_calc.py` : **Time Series Mapper**. Ensures scripts exclusively pull exactly standard valid NSE expiration boundaries.
+
+### The Legacy Telegram Alert Framework
+- `main.py` : **Legacy Telegram Monitor**. Original polling script running looping EMA/MACD generation logic arrays.
+- `strategy.py` : **Primitive Signal Generator**. Generates the base conditional evaluations for the telegram daemon.
+- `alerts.py` : **Telegram Webhooks**. Outbound messaging pipeline to post results live to external Chat IDs.
+- `tmp_methods.py` : **Development Sandbox**. Scratchpad files used during primary architecture debugging.
+

@@ -1,3 +1,9 @@
+"""
+Legacy Intraday Scalp Generator
+Utilizes simple EMA crosses and MACD logic to determine primitive BUY_CALL/BUY_PUT logic for alerting.
+
+Author: Aditya Kota
+"""
 import pandas as pd
 from ta.trend import EMAIndicator, MACD
 

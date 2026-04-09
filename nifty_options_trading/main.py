@@ -1,11 +1,17 @@
+"""
+Legacy Telegram Auto-Alert Monitor
+Executes continuous polling against Breeze to generate Telegram notification options signals.
+
+Author: Aditya Kota
+"""
 import os
 import time
 import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
 from breeze_connect import BreezeConnect
-from strategy import analyze_and_generate_signal
-from alerts import send_alert
+from nifty_options_trading.strategy import analyze_and_generate_signal
+from nifty_options_trading.alerts import send_alert
 
 # Load environment variables
 load_dotenv()

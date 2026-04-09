@@ -1,3 +1,9 @@
+"""
+Telegram Alert Protocol
+Interface managing the HTTP outbound pushes to a specified Telegram Chat ID.
+
+Author: Aditya Kota
+"""
 import os
 import requests
 from dotenv import load_dotenv

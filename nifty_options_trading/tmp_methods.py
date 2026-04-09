@@ -1,3 +1,9 @@
+"""
+Temporary Debug Sandbox
+Module for isolated testing of breeze API queries and environment variable fetches.
+
+Author: Aditya Kota
+"""
 import os
 import sys
 from dotenv import load_dotenv
