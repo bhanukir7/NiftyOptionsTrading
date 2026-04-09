@@ -1,0 +1,27 @@
+# Environments
+.env
+
+# API / Config
+config.json
+
+# Logs
+*.log
+logs/
+
+# Python caching
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS Generated
+.DS_Store
+Thumbs.db
+
+# Virtual Environments
+venv/
+env/
+.venv/
+
+# Antigravity/Agent Data
+.gemini/
+brain/
