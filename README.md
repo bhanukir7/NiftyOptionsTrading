@@ -64,6 +64,25 @@ In addition to single-contract evaluation, the suite contains active daemons to 
    SESSION_TOKEN="daily_regenerated_breeze_token_here"
    AVAILABLE_FUNDS="50000"
    ```
+4. **Telegram Alert Setup (Optional, for Live Notifications):**
+   To utilize `main.py` and receive live automated alert broadcasts on your phone, you must map your Telegram bot configurations in `.env`.
+   
+   **How to create a Telegram Bot (For Novices):**
+   - **Step A:** Open the Telegram App and search for the verified contact `@BotFather`.
+   - **Step B:** Send the message `/newbot` and follow the prompts to name your bot. 
+   - **Step C:** Once created, BotFather will give you a long **API Token**. Copy this string and paste it into your `.env` file as `TELEGRAM_BOT_TOKEN`.
+   - **Step D:** Now, search for `@userinfobot` on Telegram and send it a message. It will reply with your personal **Id number** (e.g., `123456789`). Paste this into your `.env` file as `TELEGRAM_CHAT_ID`.
+   
+   Your `.env` should now look like this:
+   ```env
+   TELEGRAM_BOT_TOKEN="1234567890:AAH...your_long_token_here"
+   TELEGRAM_CHAT_ID="123456789"
+   ```
+   **Validation:** You can verify that your bot is properly communicating with your phone by executing the alerts module directly:
+   ```powershell
+   python nifty_options_trading/alerts.py
+   ```
+   *(If successful, your new bot will instantly ping your phone with a test notification).*
 
 ## 🚀 Usage
 
