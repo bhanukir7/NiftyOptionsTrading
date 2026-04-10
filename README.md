@@ -117,13 +117,14 @@ A detailed index of exactly what every Python file does within the `nifty_option
 - `analytics_monitor.py` : **Background Signal Scanner**. Used specifically for scraping continuous data from multi-timeframe analytical models.
 
 ### Core Calculation Logic Scripts
-- `options_engine.py` : **Breeze API Communicator**. Downloads deep dataframe slices directly from ICICI server structures.
+- `rule_engine.py` : **Strict Execution Gatekeeper**. Enforces rigid discipline, time limits, position sizing, risk capital mapping, and trails active stops.
+- `options_engine.py` : **Breeze API Communicator & Dynamic Sizer**. Downloads dataframes directly from ICICI. Automatically unzips and parses the official SecurityMaster text files daily to calculate exact operational lot sizes.
 - `theta_defense.py` : **DTE Protection Script**. Identifies Options contract validity to protect the trader from bleeding Time/Theta decay.
 - `max_pain.py` : **Max Pain Calculator**. Extrapolates aggregate Open Interest data to estimate the expiration "pain" threshold for option sellers.
 - `expiry_calc.py` : **Time Series Mapper**. Ensures scripts exclusively pull exactly standard valid NSE expiration boundaries.
 
-### The Legacy Telegram Alert Framework
-- `main.py` : **Legacy Telegram Monitor**. Original polling script running looping EMA/MACD generation logic arrays.
+### Execution & Alert Framework
+- `main.py` : **Controlled Trading Engine**. The primary State Machine daemon. Scans technical indicators, calculates VWAP biases, filters logic via the `rule_engine`, executes managed trade entries, and harvests partial profits automatically.
 - `strategy.py` : **Primitive Signal Generator**. Generates the base conditional evaluations for the telegram daemon.
 - `alerts.py` : **Telegram Webhooks**. Outbound messaging pipeline to post results live to external Chat IDs.
 - `tmp_methods.py` : **Development Sandbox**. Scratchpad files used during primary architecture debugging.

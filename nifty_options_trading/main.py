@@ -60,11 +60,15 @@ def fetch_historical_data(breeze: BreezeConnect, stock_code: str, exchange_code:
         
         if response and response.get("Status") == 200 and "Success" in response:
             df = pd.DataFrame(response['Success'])
-            df["close"] = df["close"].astype(float)
-            df["open"] = df["open"].astype(float)
-            df["high"] = df["high"].astype(float)
-            df["low"] = df["low"].astype(float)
-            df["volume"] = df["volume"].astype(float) if "volume" in df else 1.0
+            df["close"] = pd.to_numeric(df["close"], errors='coerce')
+            df["open"] = pd.to_numeric(df["open"], errors='coerce')
+            df["high"] = pd.to_numeric(df["high"], errors='coerce')
+            df["low"] = pd.to_numeric(df["low"], errors='coerce')
+            df["volume"] = pd.to_numeric(df["volume"], errors='coerce') if "volume" in df else 1.0
+            
+            # Forward fill or fillna(0) to handle the empty string gaps safely
+            df.fillna(0, inplace=True)
+            
             df["datetime"] = pd.to_datetime(df["datetime"])
             return df
         return None
