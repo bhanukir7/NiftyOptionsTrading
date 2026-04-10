@@ -25,3 +25,7 @@ env/
 # Antigravity/Agent Data
 .gemini/
 brain/
+
+# Security Master Cache Downloads
+SecurityMaster.zip
+FONSEScripMaster*.txt
