@@ -20,7 +20,7 @@ if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
 from breeze_connect import BreezeConnect
-from nifty_options_trading.options_engine import get_option_chain
+from nifty_options_trading.options_engine import get_option_chain, get_dynamic_lot_size
 
 load_dotenv(os.path.join(parent_dir, '.env'))
 
@@ -100,7 +100,7 @@ def analyze_advanced_indicators(df: pd.DataFrame) -> dict:
     Evaluates End-of-Day closing strength for BTST Gap-Up/Down setups.
     """
     if df is None or len(df) < 30:
-        return {"signal": "HOLD", "reason": "Not enough data for Daily Indicators"}
+        return {"close_strength": 50, "close": 0, "macd_bullish": False, "above_bb_mid": False}
 
     # 1. MACD
     macd_obj = MACD(close=df["close"])
@@ -133,66 +133,148 @@ def analyze_advanced_indicators(df: pd.DataFrame) -> dict:
         
     close_strength_pct = round(close_strength * 100, 2)
 
-    signal = "HOLD"
-    reason = f"Market lacks BTST momentum. Daily Close Strength is {close_strength_pct}%."
-
-    # BTST GAP UP LOGIC
-    if macd_bullish and above_bb_mid and close_strength >= 0.70:
-        signal = "BUY_CALL_BTST"
-        reason = f"Strong BTST Gap-Up Setup: Price > BB Mid, Bullish MACD, and closed very strong ({close_strength_pct}% of daily range)."
-    # BTST GAP DOWN LOGIC
-    elif macd_bearish and below_bb_mid and close_strength <= 0.30:
-        signal = "BUY_PUT_BTST"
-        reason = f"Strong BTST Gap-Down Setup: Price < BB Mid, Bearish MACD, and closed very weak ({close_strength_pct}% of daily range)."
-    # Weak/Hold setups
-    elif close_strength > 0.60 and above_bb_mid:
-        signal = "BUY_CALL_WEAK"
-        reason = f"Moderate upward close ({close_strength_pct}%). Risky Gap-Up setup lacking full momentum."
-    elif close_strength < 0.40 and below_bb_mid:
-        signal = "BUY_PUT_WEAK"
-        reason = f"Moderate downward close ({close_strength_pct}%). Risky Gap-Down setup lacking full momentum."
-
     return {
-        "signal": signal,
-        "reason": reason,
         "macd": latest["MACD"],
         "macd_hist": latest["MACD_Hist"],
         "bb_high": latest["BB_High"],
         "bb_low": latest["BB_Low"],
         "bb_mid": latest["BB_Mid"],
         "close_strength": close_strength_pct,
-        "close": latest["close"]
+        "close": latest["close"],
+        "macd_bullish": macd_bullish,
+        "macd_bearish": macd_bearish,
+        "above_bb_mid": above_bb_mid,
+        "below_bb_mid": below_bb_mid
     }
 
-def generate_verdict(signal_data: dict, opt_type: str) -> str:
-    signal = signal_data["signal"]
-    verdict = ""
-    
-    if opt_type == "CE":
-         if signal == "BUY_CALL_BTST":
-             verdict = "🟩 HIGH CONVICTION BTST (Expect Gap-Up Opening)"
-         elif signal == "BUY_CALL_WEAK":
-             verdict = "🟨 WEAK BTST (Moderate Gap-Up chance, keep strict SL)"
-         elif signal in ["BUY_PUT_BTST", "BUY_PUT_WEAK"]:
-             verdict = "🛑 REJECT (Daily Trend/Close is Bearish, avoid BTST CALLs)"
-         else:
-             verdict = f"⚪ AVOID BTST: {signal_data['reason']}"
-    else:
-         if signal == "BUY_PUT_BTST":
-             verdict = "🟥 HIGH CONVICTION BTST (Expect Gap-Down Opening)"
-         elif signal == "BUY_PUT_WEAK":
-             verdict = "🟨 WEAK BTST (Moderate Gap-Down chance, keep strict SL)"
-         elif signal in ["BUY_CALL_BTST", "BUY_CALL_WEAK"]:
-             verdict = "🛑 REJECT (Daily Trend/Close is Bullish, avoid BTST PUTs)"
-         else:
-             verdict = f"⚪ AVOID BTST: {signal_data['reason']}"
-             
-    return verdict
+def analyze_oi(chain_df: pd.DataFrame, spot_price: float) -> dict:
+    if chain_df is None or chain_df.empty:
+        return {"support_below": False, "pcr": 1.0}
+        
+    try:
+        total_call_oi = chain_df[chain_df['right'].str.title() == 'Call']['open_interest'].sum()
+        total_put_oi = chain_df[chain_df['right'].str.title() == 'Put']['open_interest'].sum()
+        
+        pcr = total_put_oi / total_call_oi if total_call_oi > 0 else 1.0
+        
+        put_df = chain_df[chain_df['right'].str.title() == 'Put']
+        if not put_df.empty:
+            highest_oi_idx = put_df['open_interest'].idxmax()
+            highest_put_strike = float(put_df.loc[highest_oi_idx, 'strike_price'])
+            support_below = highest_put_strike < spot_price
+        else:
+            support_below = False
+            
+        return {"support_below": support_below, "pcr": round(pcr, 2)}
+    except Exception as e:
+        print(f"Error analyzing OI: {e}")
+        return {"support_below": False, "pcr": 1.0}
 
-def print_report(parsed: dict, opt_ltp: float, num_lots: int, lot_size: int, capital_req: float, signal_data: dict):
+def estimate_iv(df: pd.DataFrame) -> dict:
+    if df is None or len(df) < 14:
+        return {"iv_percentile": 50}
+    
+    try:
+        atr_obj = AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14)
+        atr = atr_obj.average_true_range()
+        
+        iv_proxy = (atr / df['close']) * 100
+        last_iv = iv_proxy.iloc[-1]
+        
+        lookback = min(60, len(iv_proxy))
+        recent_ivs = iv_proxy.iloc[-lookback:].dropna()
+        
+        if len(recent_ivs) > 0:
+            percentile = (recent_ivs < last_iv).mean() * 100
+        else:
+            percentile = 50
+            
+        return {"iv_percentile": min(max(int(percentile), 0), 100)}
+    except Exception as e:
+        print(f"Error estimating IV: {e}")
+        return {"iv_percentile": 50}
+
+def get_global_cues() -> dict:
+    print("\n--- GLOBAL CUES INPUT ---")
+    print("Enter UP, DOWN, or FLAT for each.")
+    try:
+        gift_nifty = input("Gift Nifty: ").strip().upper()
+        us_market = input("US Market: ").strip().upper()
+        asia_market = input("Asia Market: ").strip().upper()
+    except EOFError:
+        gift_nifty, us_market, asia_market = "FLAT", "FLAT", "FLAT"
+    except Exception:
+        gift_nifty, us_market, asia_market = "FLAT", "FLAT", "FLAT"
+    
+    return {
+        "gift_nifty": gift_nifty if gift_nifty in ["UP", "DOWN", "FLAT"] else "FLAT",
+        "us_market": us_market if us_market in ["UP", "DOWN", "FLAT"] else "FLAT",
+        "asia_market": asia_market if asia_market in ["UP", "DOWN", "FLAT"] else "FLAT"
+    }
+
+def compute_btst_score(signal_data: dict, oi_data: dict, iv_data: dict, global_data: dict) -> int:
+    score = 0
+    
+    # A. Price Action (35 points)
+    if signal_data.get("macd_bullish", False):
+        score += 10
+    if signal_data.get("above_bb_mid", False):
+        score += 10
+        
+    cs = signal_data.get("close_strength", 50)
+    cs_points = int((cs / 100.0) * 20)
+    score += cs_points
+    
+    # B. OI + PCR (25 points)
+    if oi_data.get("support_below", False):
+        score += 15
+    pcr = oi_data.get("pcr", 1.0)
+    if 0.8 <= pcr <= 1.2:
+        score += 10
+        
+    # C. IV (10 points)
+    iv_p = iv_data.get("iv_percentile", 50)
+    if iv_p < 60:
+        score += 10
+    elif iv_p > 80:
+        score -= 5
+        
+    # D. Global Cues (30 points)
+    gn = global_data.get("gift_nifty", "FLAT")
+    if gn == "UP":
+        score += 15
+    elif gn == "DOWN":
+        score -= 15
+        
+    us = global_data.get("us_market", "FLAT")
+    if us == "UP":
+        score += 10
+    elif us == "DOWN":
+        score -= 10
+        
+    asia = global_data.get("asia_market", "FLAT")
+    if asia == "UP":
+        score += 5
+    elif asia == "DOWN":
+        score -= 5
+        
+    return min(max(score, 0), 100)
+
+def generate_score_verdict(score: int) -> str:
+    if score >= 75:
+        return "🟩 HIGH PROBABILITY (not guaranteed)"
+    elif 60 <= score < 75:
+        return "🟨 MODERATE EDGE"
+    elif 45 <= score < 60:
+        return "🟧 LOW EDGE"
+    else:
+        return "🛑 NO TRADE"
+
+def print_report(parsed: dict, opt_ltp: float, num_lots: int, lot_size: int, capital_req: float, 
+                 signal_data: dict, oi_data: dict, iv_data: dict, global_data: dict, score: int):
     print("\n" + "="*75)
-    print(f" 📊 BTST EOD EVALUATOR: {parsed['stock_code']} {parsed['expiry_date']} {parsed['strike']} {parsed['opt_type']}")
-    print(f"    (Focus: 1-Day Timeframe, End-Of-Day Closing Strength)")
+    print(f" 📊 BTST PROBABILISTIC EVALUATOR: {parsed['stock_code']} {parsed['expiry_date']} {parsed['strike']} {parsed['opt_type']}")
+    print(f"    (Focus: Price Action, Options Data, Global Cues)")
     print("="*75)
     
     if opt_ltp > 0:
@@ -218,22 +300,21 @@ def print_report(parsed: dict, opt_ltp: float, num_lots: int, lot_size: int, cap
         print("⚠️ Live Premium       : Contract NOT FOUND in current active chain.")
         
     print("-" * 75)
-    print(f"📡 Daily (1-Day) Spot Technical Data:")
-    print(f"   Daily Close   : {signal_data.get('close', 0):.2f}")
+    print(f"📡 PROBABILISTIC INSIGHTS:")
+    print(f"   BTST Score    : {score}/100")
+    print(f"   PCR           : {oi_data.get('pcr', 1.0)}")
+    print(f"   Support Below : {'YES' if oi_data.get('support_below', False) else 'NO'}")
+    print(f"   IV Percentile : {iv_data.get('iv_percentile', 50)}/100")
     
-    cs = signal_data.get('close_strength', 0)
-    cs_indicator = "STRONG" if cs >= 70 else "WEAK" if cs <= 30 else "NEUTRAL"
-    print(f"   Close Strength: {cs}% ({cs_indicator} EOD Momentum)")
-    
-    print(f"   Daily MACD    : {signal_data.get('macd_hist', 0):.2f}")
-    print(f"   Bollinger 20D : Low={signal_data.get('bb_low', 0):.2f} | Mid={signal_data.get('bb_mid', 0):.2f} | High={signal_data.get('bb_high', 0):.2f}")
-    
-    print(f"\n   >> SIGNAL      : {signal_data.get('signal', 'HOLD')}")
-    print(f"   >> REASON      : {signal_data.get('reason', '')}")
+    print(f"   Global Cues   : Gift Nifty={global_data.get('gift_nifty', 'FLAT')} | US={global_data.get('us_market', 'FLAT')} | Asia={global_data.get('asia_market', 'FLAT')}")
     
     print("="*75)
-    final_decision = generate_verdict(signal_data, parsed['opt_type'])
-    print(f"🎯 BTST VERDICT: {final_decision}")
+    final_decision = generate_score_verdict(score)
+    print(f"🎯 BTST VERDICT: [{score}/100] {final_decision}")
+    
+    print("\n   ⚠️ DISCLAMERS:")
+    print("   - BTST is probability-based, not guaranteed.")
+    print("   - Option premium may decay due to IV changes overnight.")
     print("="*75 + "\n")
 
 def main():
@@ -271,6 +352,19 @@ def main():
         
     chain_df = get_option_chain(breeze, parsed['stock_code'], parsed['expiry_date'])
     
+    # 3. Analyze OI
+    spot_price = signal_data.get("close", 0.0)
+    oi_data = analyze_oi(chain_df, spot_price)
+    
+    # 4. Estimate IV
+    iv_data = estimate_iv(spot_df)
+    
+    # 5. Get Global Cues
+    global_data = get_global_cues()
+    
+    # 6. Compute BTST Score
+    score = compute_btst_score(signal_data, oi_data, iv_data, global_data)
+    
     opt_ltp = 0.0
     num_lots = 0
     lot_size = 1
@@ -283,8 +377,7 @@ def main():
                               
         if not target_row.empty:
             opt_ltp = float(target_row.iloc[0]['last_traded_price'])
-            lot_sizes = {"NIFTY": 65, "CNXBAN": 20, "VEDLIM": 1150}
-            lot_size = lot_sizes.get(parsed['stock_code'], 1)
+            lot_size = get_dynamic_lot_size(parsed['stock_code'])
             available_funds = float(os.getenv("AVAILABLE_FUNDS", "50000"))
             
             if opt_ltp > 0:
@@ -292,7 +385,7 @@ def main():
                 num_lots = int(available_funds / lot_cost)
                 capital_req = num_lots * lot_cost
                 
-    print_report(parsed, opt_ltp, num_lots, lot_size, capital_req, signal_data)
+    print_report(parsed, opt_ltp, num_lots, lot_size, capital_req, signal_data, oi_data, iv_data, global_data, score)
 
 if __name__ == "__main__":
     main()

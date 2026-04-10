@@ -25,10 +25,10 @@ A strict risk-adjusted pivot from V1.
 * Calculates identical 5-minute underlying technicals but completely overhauls the profit taking mechanism.
 * **Risk Model:** Fixed Percentage System. Strictly enforces predefined percentage levels: Target 1 (+5%), Target 2 (+10%), and a hard Stop-Loss (-3%).
 
-### 4. `evaluate_btst.py` (End-of-Day EOD Gap-Ups)
-Transitioned the engine from 5-minute lagging indicators to a **1-Day Macro Timeframe** specifically to hunt massive overnight gap-ups.
-* **Core Logic:** Focuses intensely on Daily Closing Strength. If a stock closes near its absolute daily peak (e.g. >85% of its daily range) above its 20-Day SMA with Bullish MACD, it triggers a `🟩 HIGH CONVICTION BTST`.
-* Designed to prevent "lagging indicator traps" where 5-min intraday profit-booking overrides strong daily multi-day recovery momentum.
+### 4. `evaluate_btst.py` (Probabilistic BTST Decision Engine)
+Upgraded from deterministic binary signals to a **0–100 probability-based scoring system** to hunt massive overnight gap-ups using a 1-Day Macro Timeframe.
+* **Scoring Logic:** Computes dynamic edge scores scaling across: Price Action (MACD, Bollinger Bands, Closing Strength) [35%], Options Data (PCR, Support Strikes) [25%], Volatility Percentile (ATR-based IV Proxy) [10%], and interactive Global Cues [30%].
+* **Output:** Replaces static true/false inputs with quantified edge verdicts (`HIGH PROBABILITY`, `MODERATE EDGE`, etc.) based on overall mathematically calculated confidence.
 
 ### 5. `evaluate_global.py` (Global Macro Confluence)
 The definitive, flagship analyzer. 
@@ -107,7 +107,7 @@ A detailed index of exactly what every Python file does within the `nifty_option
 
 ### The Evaluator Engines
 - `evaluate_global.py` : **Global Macro Confluence Evaluator**. Integrates local Indian setups with global US/Asian market sentiment to generate macro-overnight convictions.
-- `evaluate_btst.py` : **End-Of-Day BTST Engine**. Focuses strictly on the physical footprint of the 1-Day closing strength to project opening gap-ups.
+- `evaluate_btst.py` : **Probabilistic BTST Engine**. Aggregates Daily Closing Strength, Put-Call Ratio, IV proxy, and Global Cues to compute a 0-100 confidence score for gap-ups.
 - `evaluate_contract_V2.py` : **Intraday Engine V2**. Employs fixed percentage targets (+5%, +10%) alongside strict -3% momentum traps.
 - `evaluate_contract_V1.py` : **Intraday Engine V1**. Utilizes dynamically shifting stop-loss logic generated natively by the Average True Range (ATR).
 - `evaluate_contract.py` : **Base Pricing Engine**. Establishes terminal grid-matrices mapping available capital to physical option lots.
