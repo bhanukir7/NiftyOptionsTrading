@@ -20,7 +20,7 @@ from breeze_connect import BreezeConnect
 from strategy import analyze_and_generate_signal
 from alerts import send_alert
 from nifty_options_trading.expiry_calc import get_dynamic_expiry, get_next_weekly_expiry
-from nifty_options_trading.options_engine import get_option_chain
+from nifty_options_trading.options_engine import get_option_chain, get_dynamic_lot_size
 from nifty_options_trading.max_pain import calculate_max_pain
 from nifty_options_trading.theta_defense import calculate_dte, evaluate_theta_risk
 
@@ -141,8 +141,7 @@ def run_unified_monitor():
                             
                         # Calculate quantity based on available funds
                         available_funds = float(os.getenv("AVAILABLE_FUNDS", "50000"))
-                        lot_sizes = {"NIFTY": 65, "CNXBAN": 20, "VEDLIM": 1150}
-                        lot_size = lot_sizes.get(stock_code, 1)
+                        lot_size = get_dynamic_lot_size(stock_code)
                         
                         if opt_ltp > 0:
                             lot_cost = opt_ltp * lot_size

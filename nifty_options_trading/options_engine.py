@@ -57,3 +57,61 @@ def get_option_chain(breeze: BreezeConnect, stock_code: str, expiry_date: str) -
     except Exception as e:
         print(f"Exception during option chain fetch: {e}")
         return pd.DataFrame()
+
+import os
+import zipfile
+import urllib.request
+
+class SecurityMasterCache:
+    _master_df = None
+    _last_date = None
+
+    @classmethod
+    def get_lot_size(cls, stock_code: str) -> int:
+        today_date_str = datetime.now().strftime("%Y%m%d")
+        
+        # In-memory cache hit
+        if cls._master_df is not None and cls._last_date == today_date_str:
+            row = cls._master_df[cls._master_df['ShortName'] == stock_code]
+            if not row.empty:
+                return int(row.iloc[0]['LotSize'])
+            return 1 # Fallback
+            
+        # Download and extract if missing
+        file_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_dir = os.path.join(file_dir, "logs")
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+            
+        txt_path = os.path.join(log_dir, f"FONSEScripMaster_{today_date_str}.txt")
+        zip_path = os.path.join(log_dir, "SecurityMaster.zip")
+        
+        if not os.path.exists(txt_path):
+            print(f"Downloading ICICI SecurityMaster for {today_date_str} to extract live Lot Sizes...")
+            try:
+                urllib.request.urlretrieve("https://directlink.icicidirect.com/NewSecurityMaster/SecurityMaster.zip", zip_path)
+                with zipfile.ZipFile(zip_path, 'r') as z:
+                    z.extract("FONSEScripMaster.txt", log_dir)
+                os.rename(os.path.join(log_dir, "FONSEScripMaster.txt"), txt_path)
+                if os.path.exists(zip_path):
+                    os.remove(zip_path) # cleanup
+            except Exception as e:
+                print(f"Failed to download Security Master: {e}")
+                return 1 # Fallback on error
+                
+        # Load CSV into memory
+        if os.path.exists(txt_path):
+            try:
+                cls._master_df = pd.read_csv(txt_path, usecols=['ShortName', 'LotSize'])
+                cls._last_date = today_date_str
+                row = cls._master_df[cls._master_df['ShortName'] == stock_code]
+                if not row.empty:
+                    return int(row.iloc[0]['LotSize'])
+            except Exception as e:
+                print(f"Failed to parse Security Master: {e}")
+                
+        return 1
+
+def get_dynamic_lot_size(stock_code: str) -> int:
+    """Public wrapper to fetch lot size transparently."""
+    return SecurityMasterCache.get_lot_size(stock_code)

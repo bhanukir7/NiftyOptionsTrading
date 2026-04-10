@@ -24,7 +24,7 @@ if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
 from breeze_connect import BreezeConnect
-from nifty_options_trading.options_engine import get_option_chain
+from nifty_options_trading.options_engine import get_option_chain, get_dynamic_lot_size
 
 load_dotenv(os.path.join(parent_dir, '.env'))
 
@@ -331,8 +331,7 @@ def main():
                               
         if not target_row.empty:
             opt_ltp = float(target_row.iloc[0]['last_traded_price'])
-            lot_sizes = {"NIFTY": 65, "CNXBAN": 20, "VEDLIM": 1150}
-            lot_size = lot_sizes.get(parsed['stock_code'], 1)
+            lot_size = get_dynamic_lot_size(parsed['stock_code'])
             available_funds = float(os.getenv("AVAILABLE_FUNDS", "50000"))
             
             if opt_ltp > 0:
