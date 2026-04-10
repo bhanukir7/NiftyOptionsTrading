@@ -5,6 +5,14 @@ Executes continuous polling against Breeze to generate Telegram notification opt
 Author: Aditya Kota
 """
 import os
+import sys
+
+# Ensure the parent directory is in the python path to prevent ModuleNotFoundError
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
 import time
 import pandas as pd
 from datetime import datetime
@@ -79,7 +87,7 @@ def main():
         print(f"[ERROR] Failed to initialize Breeze API. Ensure your Session Token is valid for today, and IP is whitelisted. Details: {e}")
         return
         
-    STOCK_CODES = ["NIFTY", "CNXBAN"] # Add more stocks to this list
+    STOCK_CODES = ["NIFTY", "CNXBAN", "VEDLIM", "HINAER", "BHADYN", "COCSHI", "MAZDOC"] # Add more stocks to this list
     EXCHANGE_CODE = "NSE"
     INTERVAL = "5minute" # Can be 1minute, 5minute, etc.
     
