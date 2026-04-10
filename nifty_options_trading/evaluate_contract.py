@@ -15,7 +15,7 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
-from breeze_connect import BreezeConnect
+from nifty_options_trading.safe_breeze import SafeBreeze
 from nifty_options_trading.options_engine import get_option_chain, get_dynamic_lot_size
 from nifty_options_trading.unified_monitor import fetch_historical_data
 from strategy import analyze_and_generate_signal
@@ -26,8 +26,8 @@ API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 SESSION_TOKEN = os.getenv("SESSION_TOKEN")
 
-def initialize_breeze() -> BreezeConnect:
-    breeze = BreezeConnect(api_key=API_KEY)
+def initialize_breeze() -> SafeBreeze:
+    breeze = SafeBreeze(api_key=API_KEY)
     breeze.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
     return breeze
 

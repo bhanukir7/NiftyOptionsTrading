@@ -38,11 +38,14 @@ The definitive, flagship analyzer.
 
 ---
 
-## 🛠️ Infrastructure & Monitors
+## 🛠️ Infrastructure & Network Defenses
 
-In addition to single-contract evaluation, the suite contains active daemons to track broad portfolios.
+In addition to single-contract evaluation, the suite contains active daemons and strict network defenses to track broad portfolios safely.
 
-* `options_engine.py`: The core wrapper bridging authentication and dataframe fetching to ICICI Breeze.
+* `api_rate_limiter.py` & `cache_manager.py`: Protects against ICICIdirect API limits (5000/day, 100/min) using advanced deque tracking and Time-To-Live (TTL) memory caching.
+* `safe_breeze.py`: A unified, central wrapper that overrides raw API calls mapping them securely through the caching matrices.
+* `market_stream.py`: An asynchronous WebSocket engine hooking actively onto ICICI ticks to update active position tracking locally, eliminating REST API overhead.
+* `options_engine.py`: The core wrapper bridging historical dataframe fetching.
 * `max_pain.py`: Calculates Max Pain theory limits across active option chains.
 * `theta_defense.py`: Analyzes DTE (Days to Expiry) decay curves to prevent buying heavily decaying premium.
 * `analytics_monitor.py` & `unified_monitor.py`: Persistent, unified dashboard monitors tracking multiple underlying contracts simultaneously via asynchronous API streaming.
@@ -118,13 +121,19 @@ A detailed index of exactly what every Python file does within the `nifty_option
 
 ### Core Calculation Logic Scripts
 - `rule_engine.py` : **Strict Execution Gatekeeper**. Enforces rigid discipline, time limits, position sizing, risk capital mapping, and trails active stops.
-- `options_engine.py` : **Breeze API Communicator & Dynamic Sizer**. Downloads dataframes directly from ICICI. Automatically unzips and parses the official SecurityMaster text files daily to calculate exact operational lot sizes.
+- `options_engine.py` : **Dynamic Sizer & Fetcher**. Downloads dataframes directly from ICICI. Automatically unzips and parses the official SecurityMaster text files daily to calculate exact operational lot sizes.
 - `theta_defense.py` : **DTE Protection Script**. Identifies Options contract validity to protect the trader from bleeding Time/Theta decay.
 - `max_pain.py` : **Max Pain Calculator**. Extrapolates aggregate Open Interest data to estimate the expiration "pain" threshold for option sellers.
 - `expiry_calc.py` : **Time Series Mapper**. Ensures scripts exclusively pull exactly standard valid NSE expiration boundaries.
 
+### Network & API Infrastructure
+- `safe_breeze.py` : **API Core Wrapper**. Redirects logic to local cache blocks or gracefully queues requests under active ICICIdirect limits.
+- `api_rate_limiter.py` : **Quota Queue**. Algorithmic rate restrictor enforcing an active 90% hard-shutdown threshold on daily call volumes.
+- `cache_manager.py` : **TTL Memory Cache**. Eliminates redundant polling by statically saving Option Chains (180s) and Historical ticks (60s) in local system RAM.
+- `market_stream.py` : **WebSocket Integrator**. Circumvents REST API bottlenecks entirely by subscribing to a standard native price stream.
+
 ### Execution & Alert Framework
-- `main.py` : **Controlled Trading Engine**. The primary State Machine daemon. Scans technical indicators, calculates VWAP biases, filters logic via the `rule_engine`, executes managed trade entries, and harvests partial profits automatically.
+- `main.py` : **Controlled Multi-Task Daemon**. The primary scheduled state machine daemon. Batch processes historical indicator refreshes exclusively every 60s, pulling live entry prices via WebSockets, and natively managing active trading payloads flawlessly.
 - `strategy.py` : **Primitive Signal Generator**. Generates the base conditional evaluations for the telegram daemon.
 - `alerts.py` : **Telegram Webhooks**. Outbound messaging pipeline to post results live to external Chat IDs.
 - `tmp_methods.py` : **Development Sandbox**. Scratchpad files used during primary architecture debugging.

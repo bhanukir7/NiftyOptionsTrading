@@ -6,9 +6,9 @@ Author: Aditya Kota
 """
 import pandas as pd
 from datetime import datetime
-from breeze_connect import BreezeConnect
+from nifty_options_trading.safe_breeze import SafeBreeze
 
-def get_option_chain(breeze: BreezeConnect, stock_code: str, expiry_date: str) -> pd.DataFrame:
+def get_option_chain(breeze: SafeBreeze, stock_code: str, expiry_date: str) -> pd.DataFrame:
     """
     Fetches the option chain for a given stock code and expiry date using the Breeze API.
     Returns a pandas DataFrame containing strike prices, calls, and puts data.

@@ -16,7 +16,7 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
-from breeze_connect import BreezeConnect
+from nifty_options_trading.safe_breeze import SafeBreeze
 from strategy import analyze_and_generate_signal
 from alerts import send_alert
 from nifty_options_trading.expiry_calc import get_dynamic_expiry, get_next_weekly_expiry
@@ -30,13 +30,13 @@ API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 SESSION_TOKEN = os.getenv("SESSION_TOKEN")
 
-def initialize_breeze() -> BreezeConnect:
+def initialize_breeze() -> SafeBreeze:
     print("Initializing Breeze API for Unified Monitor...")
-    breeze = BreezeConnect(api_key=API_KEY)
+    breeze = SafeBreeze(api_key=API_KEY)
     breeze.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
     return breeze
 
-def fetch_historical_data(breeze: BreezeConnect, stock_code: str, exchange_code: str, interval: str) -> pd.DataFrame:
+def fetch_historical_data(breeze: SafeBreeze, stock_code: str, exchange_code: str, interval: str) -> pd.DataFrame:
     try:
         now_dt = datetime.now()
         iso_date = now_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z") 

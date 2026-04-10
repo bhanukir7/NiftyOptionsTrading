@@ -21,7 +21,7 @@ from max_pain import calculate_max_pain
 from theta_defense import calculate_dte, evaluate_theta_risk
 from options_engine import get_option_chain
 from alerts import send_alert
-from breeze_connect import BreezeConnect
+from nifty_options_trading.safe_breeze import SafeBreeze
 
 load_dotenv(os.path.join(parent_dir, '.env'))
 
@@ -31,9 +31,9 @@ SESSION_TOKEN = os.getenv("SESSION_TOKEN")
 # Configure current expiry date (Format: YYYY-MM-DD or standard ISO without time)
 EXPIRY_DATE = os.getenv("CURRENT_EXPIRY", "2026-04-09")
 
-def initialize_breeze() -> BreezeConnect:
+def initialize_breeze() -> SafeBreeze:
     print("Initializing Breeze API for Options Engine...")
-    breeze = BreezeConnect(api_key=API_KEY)
+    breeze = SafeBreeze(api_key=API_KEY)
     breeze.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
     return breeze
 
