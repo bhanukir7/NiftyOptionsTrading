@@ -95,6 +95,7 @@ def run_analytics_monitor():
         else:
             print(f"[{current_time_str}] Failed to retrieve or parse option chain. Will retry...")
             
+        breeze.log_api_usage()
         # Poll every 5 minutes assuming chain data doesn't wildly vary second-by-second
         time.sleep(300)
 

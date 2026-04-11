@@ -1,6 +1,7 @@
 """
-Intraday Options Engine V2 (Fixed Targets)
-Evaluates trailing market momentum using 5-minute technical indicators and sets fixed risk-reward targets.
+Intraday Options Engine V3 (Multi-Strike Evaluator)
+Evaluates trailing market momentum using 5-minute technical indicators and selects 3 close strikes (ITM/ATM/OTM).
+Evaluates their risk-reward targets based on the current market direction.
 
 Author: Aditya Kota
 """
@@ -35,14 +36,18 @@ def initialize_breeze() -> SafeBreeze:
 
 def parse_input_string(contract_str: str) -> dict:
     parts = re.split(r'\s+', contract_str.strip())
-    if len(parts) < 5:
-        raise ValueError("Invalid format. Expected: 'SYMBOL DD MMM STRIKE TYPE' (e.g. 'cnxban 28 apr 48800 PE')")
+    if len(parts) < 4:
+        raise ValueError("Invalid format. Expected: 'SYMBOL DD MMM TYPE' (e.g. 'cnxban 28 apr PE')")
         
     stock_code = parts[0].upper()
     day = parts[1]
     month = parts[2].capitalize()
-    strike = float(parts[3])
-    opt_type = parts[4].upper()
+    
+    # Support both 4 and 5 parts if user accidentally provides a strike
+    if len(parts) == 4:
+        opt_type = parts[3].upper()
+    else:
+        opt_type = parts[4].upper()
     
     if opt_type not in ["CE", "CALL", "PE", "PUT"]:
         raise ValueError(f"Invalid option type: {opt_type}. Expected CE or PE.")
@@ -59,11 +64,10 @@ def parse_input_string(contract_str: str) -> dict:
     return {
         "stock_code": stock_code,
         "expiry_date": iso_expiry,
-        "strike": strike,
         "opt_type": "CE" if opt_type in ["CE", "CALL"] else "PE" 
     }
 
-def fetch_multiday_data(breeze: BreezeConnect, stock_code: str, exchange_code: str, interval: str, days_back=7) -> pd.DataFrame:
+def fetch_multiday_data(breeze, stock_code: str, exchange_code: str, interval: str, days_back=7) -> pd.DataFrame:
     try:
         now_dt = datetime.now()
         iso_date = now_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z") 
@@ -106,10 +110,6 @@ def calculate_choppiness_index(df: pd.DataFrame, window=14) -> pd.Series:
     return chop
 
 def analyze_advanced_indicators(df: pd.DataFrame) -> dict:
-    """
-    Applies MACD, ATR, Bollinger Bands and Choppiness index.
-    Returns the latest indicator values and a trend verdict strictly for the current latest datapoint.
-    """
     if df is None or len(df) < 50:
         return {"signal": "HOLD", "reason": "Not enough data"}
 
@@ -160,8 +160,7 @@ def analyze_advanced_indicators(df: pd.DataFrame) -> dict:
             reason = "Trending Market (CHOP < 38.2) + MACD Bearish + Price < BB Mid."
     else:
         if is_choppy:
-            reason = "Choppy Market (CHOP > 61.8). Expect reversals at BB margins; directional trades highly risky."
-            # Maybe faded extremes?
+            reason = "Choppy Market (CHOP > 61.8). Expect reversals at BB margins;"
             if latest["close"] <= latest["BB_Low"] and latest["MACD_Hist"] > prev["MACD_Hist"]:
                  signal = "BUY_CALL"
                  reason = "Choppy Reversal setup: Price at BB Low + MACD Hist rising."
@@ -213,34 +212,12 @@ def generate_verdict(signal_data: dict, opt_type: str) -> str:
              
     return verdict
 
-def print_report(parsed: dict, opt_ltp: float, num_lots: int, lot_size: int, capital_req: float, signal_data: dict):
-    print("\n" + "="*70)
-    print(f" 📊 V2 STRATEGY EVALUATOR: {parsed['stock_code']} {parsed['expiry_date']} {parsed['strike']} {parsed['opt_type']}")
-    print(f"    (Focus: Current Date Technicals)")
-    print("="*70)
+def print_report(parsed: dict, chain_targets: pd.DataFrame, signal_data: dict):
+    print("\n" + "="*80)
+    print(f" 📊 V3 STRATEGY EVALUATOR: {parsed['stock_code']} {parsed['expiry_date']} MULTI-STRIKE {parsed['opt_type']}")
+    print(f"    (Focus: Current Date Technicals & Up to 4 Strikes Above/Below)")
+    print("="*80)
     
-    if opt_ltp > 0:
-        print(f"💸 Live Premium        : ₹{opt_ltp}")
-        available = float(os.getenv("AVAILABLE_FUNDS", "50000"))
-        
-        if num_lots > 0:
-            print(f"📦 Affordability        : {num_lots} Lots [{num_lots * lot_size} Qty] using ₹{available} budget")
-        else:
-            print(f"⚠️ Warning              : Budget insufficient. 1 lot costs ₹{round(opt_ltp * lot_size, 2)}")
-            
-        print("-"*70)
-        target1 = opt_ltp * 1.05
-        target2 = opt_ltp * 1.10
-        sl = opt_ltp * 0.97
-        
-        print(f"🚀 FIXED PERCENTAGE TARGETS (V2):")
-        print(f"   Target 1 (+5%)  : [~₹{round(target1, 2)}]")
-        print(f"   Target 2 (+10%) : [~₹{round(target2, 2)}]")
-        print(f"   Stop-Loss (-3%) : [~₹{round(sl, 2)}]")
-    else:
-        print("⚠️ Live Premium       : Contract NOT FOUND in current active chain.")
-        
-    print("-"*70)
     print(f"📡 5-Min Spot Technical Data (Current Date Latest):")
     print(f"   Spot Price    : {signal_data.get('close', 0):.2f}")
     print(f"   MACD Hist     : {signal_data.get('macd_hist', 0):.2f}")
@@ -254,15 +231,47 @@ def print_report(parsed: dict, opt_ltp: float, num_lots: int, lot_size: int, cap
     print(f"\n   >> SIGNAL      : {signal_data.get('signal', 'HOLD')}")
     print(f"   >> REASON      : {signal_data.get('reason', '')}")
     
-    print("="*70)
+    print("="*80)
     final_decision = generate_verdict(signal_data, parsed['opt_type'])
     print(f"🎯 FINAL VERDICT: {final_decision}")
-    print("="*70 + "\n")
+    print("="*80)
+    
+    if chain_targets.empty:
+        print("\n⚠️ Note: No valid contracts found in the option chain for evaluation.")
+    else:
+        print("\n🚀 CLOSEST STRIKES EVALUATION:\n")
+        available = float(os.getenv("AVAILABLE_FUNDS", "50000"))
+        lot_size = get_dynamic_lot_size(parsed['stock_code'])
+        
+        for idx, row in chain_targets.iterrows():
+            strike = row['strike_price']
+            opt_ltp = float(row.get('last_traded_price', 0))
+            
+            print(f"✨ STRIKE: {strike} {parsed['opt_type']}")
+            if opt_ltp > 0:
+                print(f"   Live Premium  : ₹{opt_ltp}")
+                lot_cost = opt_ltp * lot_size
+                num_lots = int(available / lot_cost) if lot_cost > 0 else 0
+                
+                if num_lots > 0:
+                    print(f"   Affordability : {num_lots} Lots [{num_lots * lot_size} Qty] using ₹{available} budget")
+                else:
+                    print(f"   Warning       : Budget insufficient. 1 lot costs ₹{round(lot_cost, 2)}")
+                
+                target1 = opt_ltp * 1.05
+                target2 = opt_ltp * 1.10
+                sl = opt_ltp * 0.97
+                
+                print(f"   Targets       : Target 1: ₹{round(target1, 2)} (+5%) | Target 2: ₹{round(target2, 2)} (+10%) | SL: ₹{round(sl, 2)} (-3%)")
+            else:
+                print("   Live Premium  : ₹0.0 (No trades or stale premium)")
+            print("-" * 80)
+    print("\n")
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python evaluate_contract_V2.py \"<CONTRACT_STRING>\"")
-        print("Example: python evaluate_contract_V2.py \"cnxban 28 Apr 48800 PE\"")
+        print("Usage: python evaluate_contract_V3.py \"<CONTRACT_STRING>\"")
+        print("Example: python evaluate_contract_V3.py \"cnxban 28 Apr PE\"")
         sys.exit(1)
         
     raw_input = sys.argv[1]
@@ -274,17 +283,13 @@ def main():
         sys.exit(1)
         
     print(f"Connecting to Breeze API...")
-    
     try:
         breeze = initialize_breeze()
     except Exception as e:
         print(f"[ERROR] API Authentication Failed. {e}")
         sys.exit(1)
         
-    print(f"Fetching 5-Minute Live Technicals (Current Date) & Verifying Contract...")
-    
-    # Fetch enough multiday data so that 14/20 period technical indicators "burn in" accurately, 
-    # but the analysis engine will specifically grab the current date's latest action.
+    print(f"Fetching 5-Minute Live Technicals (Current Date)...")
     spot_df = fetch_multiday_data(breeze, parsed['stock_code'], "NSE", "5minute", days_back=7)
     
     if spot_df.empty:
@@ -292,30 +297,38 @@ def main():
         sys.exit(1)
         
     signal_data = analyze_advanced_indicators(spot_df)
-        
+    
+    print(f"Fetching Option Chain Data to find optimal strikes...")
     chain_df = get_option_chain(breeze, parsed['stock_code'], parsed['expiry_date'])
     
-    opt_ltp = 0.0
-    num_lots = 0
-    lot_size = 1
-    capital_req = 0.0
-    
+    target_contracts = pd.DataFrame()
     if chain_df is not None and not chain_df.empty:
+        spot_price = signal_data.get('close', 0)
         opt_type_full = "CALL" if parsed['opt_type'] == "CE" else "PUT"
-        target_row = chain_df[(chain_df['strike_price'] == float(parsed['strike'])) & 
-                              (chain_df['right'].str.upper().isin([opt_type_full, parsed['opt_type']]))]
-                              
-        if not target_row.empty:
-            opt_ltp = float(target_row.iloc[0]['last_traded_price'])
-            lot_size = get_dynamic_lot_size(parsed['stock_code'])
-            available_funds = float(os.getenv("AVAILABLE_FUNDS", "50000"))
+        
+        # Filter chain for CE/PE only
+        chain_filtered = chain_df[chain_df['right'].str.upper().isin([opt_type_full, parsed['opt_type']])].copy()
+        
+        if not chain_filtered.empty and spot_price > 0:
+            chain_filtered['strike_price'] = chain_filtered['strike_price'].astype(float)
             
-            if opt_ltp > 0:
-                lot_cost = opt_ltp * lot_size
-                num_lots = int(available_funds / lot_cost)
-                capital_req = num_lots * lot_cost
+            atm_diff = (chain_filtered['strike_price'] - spot_price).abs()
+            atm_strike_idx = atm_diff.idxmin()
+            atm_strike = chain_filtered.loc[atm_strike_idx, 'strike_price']
+            
+            unique_strikes = sorted(chain_filtered['strike_price'].unique())
+            try:
+                atm_pos = unique_strikes.index(atm_strike)
+                start_pos = max(0, atm_pos - 4)
+                end_pos = min(len(unique_strikes), atm_pos + 5)
+                selected_strikes = unique_strikes[start_pos:end_pos]
+            except ValueError:
+                selected_strikes = []
                 
-    print_report(parsed, opt_ltp, num_lots, lot_size, capital_req, signal_data)
+            target_contracts = chain_filtered[chain_filtered['strike_price'].isin(selected_strikes)].copy()
+            target_contracts = target_contracts.sort_values(by='strike_price')
+            
+    print_report(parsed, target_contracts, signal_data)
     breeze.log_api_usage()
 
 if __name__ == "__main__":

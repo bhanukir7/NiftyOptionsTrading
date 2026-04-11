@@ -1,17 +1,57 @@
 import time
+import os
+import json
 from collections import deque
 
 class RateLimiter:
     """
     Manages API Rate Limits for ICICI Breeze.
     Tracks requests per minute and per day to prevent limits (100/min, 5000/day).
+    Persists data to disk so limits are respected across script runs.
     """
-    def __init__(self, max_per_min=100, max_per_day=5000):
+    def __init__(self, max_per_min=100, max_per_day=5000, file_path=None):
         self.max_per_min = max_per_min
         self.max_per_day = max_per_day
+        if file_path is None:
+            self.file_path = os.path.join(os.path.dirname(__file__), 'api_usage.json')
+        else:
+            self.file_path = file_path
+            
         self.call_timestamps = deque()
         self.daily_calls = 0
         self.current_day = time.localtime().tm_yday
+        self._load_state()
+        
+    def _load_state(self):
+        """Loads rate limit state from disk."""
+        if os.path.exists(self.file_path):
+            try:
+                with open(self.file_path, 'r') as f:
+                    state = json.load(f)
+                    if state.get('current_day') == self.current_day:
+                        self.daily_calls = state.get('daily_calls', 0)
+                        timestamps = state.get('call_timestamps', [])
+                        # Load only valid valid minute timestamps
+                        now = time.time()
+                        self.call_timestamps = deque([ts for ts in timestamps if now - ts < 60.0])
+                    else:
+                        # File state is from yesterday, override with fresh state
+                        self._save_state()
+            except Exception:
+                pass
+                
+    def _save_state(self):
+        """Saves current rate limit state to disk."""
+        try:
+            state = {
+                'current_day': self.current_day,
+                'daily_calls': self.daily_calls,
+                'call_timestamps': list(self.call_timestamps)
+            }
+            with open(self.file_path, 'w') as f:
+                json.dump(state, f)
+        except Exception:
+            pass
         
     def _reset_if_needed(self):
         """Resets the daily counter if the day has crossed."""
@@ -20,11 +60,15 @@ class RateLimiter:
             self.daily_calls = 0
             self.call_timestamps.clear()
             self.current_day = now_day
+            self._save_state()
             
     def _cleanup_minute_queue(self, current_time: float):
         """Evicts timestamps older than 60 seconds from the deque."""
+        dirty = False
         while self.call_timestamps and current_time - self.call_timestamps[0] >= 60.0:
             self.call_timestamps.popleft()
+            dirty = True
+        return dirty
 
     def can_call(self) -> bool:
         """Returns whether an API call can be safely made right now."""
@@ -57,3 +101,4 @@ class RateLimiter:
         self._reset_if_needed()
         self.call_timestamps.append(time.time())
         self.daily_calls += 1
+        self._save_state()

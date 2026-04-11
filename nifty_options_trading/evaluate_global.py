@@ -340,6 +340,7 @@ def main():
                 capital_req = num_lots * lot_cost
                 
     print_report(parsed, opt_ltp, num_lots, lot_size, capital_req, signal_data, global_data)
+    breeze.log_api_usage()
 
 if __name__ == "__main__":
     main()

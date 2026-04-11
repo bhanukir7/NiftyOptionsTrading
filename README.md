@@ -1,4 +1,5 @@
 # nifty_options_trading 🚀
+**Release Version 1.0** — *April 12, 2026, 02:29 AM IST*
 
 An advanced, automated algorithmic options trading, evaluation, and monitoring suite built natively for Indian Equities and Indices using the **ICICIdirect Breeze API**.
 
@@ -35,6 +36,16 @@ The definitive, flagship analyzer.
 * Executes silent external background calls via `yfinance` to global indices (S&P 500, NASDAQ, Nikkei 225, FTSE 100) before triggering local Indian API scripts.
 * **Confluence Logic:** Synchronizes the local Daily BTST gap-up probability with global overnight health.
 * Triggers `🔥 EXTREME CONVICTION` when US/Asian markets align with local setups, and throws `⚠️ DIVERGENCE WARNINGS` when global markets crash against your local trades.
+
+### 6. `evaluate_contract_V3.py` (Multi-Strike Evaluator)
+The latest UI/UX and analytical upgrade for fast terminal tracking.
+* **Input Simplicity:** You no longer type exact strike prices; just feed the underlying symbol, expiry, and Call/Put direction.
+* **Multi-Strike Logic:** Automatically locates the ATM strike and evaluates up to 4 closest strikes above and 4 closest strikes below the live spot price simultaneously.
+
+---
+
+## 🆕 v1.0 Universal API Tracking
+As part of Release 1.0, the `api_rate_limiter.py` engine now persistently tracks API endpoint usage across *all independent script runs*. State is preserved in a local JSON cache, meaning whether you run `V2`, `V3`, or a background monitor, ICICIdirect quotas are universally protected and synced. All evaluators now explicitly print live API usage logs seamlessly at the end of their reports.
 
 ---
 
@@ -111,6 +122,7 @@ A detailed index of exactly what every Python file does within the `nifty_option
 ### The Evaluator Engines
 - `evaluate_global.py` : **Global Macro Confluence Evaluator**. Integrates local Indian setups with global US/Asian market sentiment to generate macro-overnight convictions.
 - `evaluate_btst.py` : **Probabilistic BTST Engine**. Aggregates Daily Closing Strength, Put-Call Ratio, IV proxy, and Global Cues to compute a 0-100 confidence score for gap-ups.
+- `evaluate_contract_V3.py` : **Multi-Strike Evaluator**. Dynamically locates ATM strike and evaluates up to 9 closest active strikes (4 above, 4 below) without requiring explicit strike inputs.
 - `evaluate_contract_V2.py` : **Intraday Engine V2**. Employs fixed percentage targets (+5%, +10%) alongside strict -3% momentum traps.
 - `evaluate_contract_V1.py` : **Intraday Engine V1**. Utilizes dynamically shifting stop-loss logic generated natively by the Average True Range (ATR).
 - `evaluate_contract.py` : **Base Pricing Engine**. Establishes terminal grid-matrices mapping available capital to physical option lots.
@@ -128,7 +140,7 @@ A detailed index of exactly what every Python file does within the `nifty_option
 
 ### Network & API Infrastructure
 - `safe_breeze.py` : **API Core Wrapper**. Redirects logic to local cache blocks or gracefully queues requests under active ICICIdirect limits.
-- `api_rate_limiter.py` : **Quota Queue**. Algorithmic rate restrictor enforcing an active 90% hard-shutdown threshold on daily call volumes.
+- `api_rate_limiter.py` : **Persistent Quota Queue**. Algorithmic rate restrictor mapping usage dynamically across runs (via `api_usage.json`) enforcing an active 90% hard-shutdown threshold on daily call volumes.
 - `cache_manager.py` : **TTL Memory Cache**. Eliminates redundant polling by statically saving Option Chains (180s) and Historical ticks (60s) in local system RAM.
 - `market_stream.py` : **WebSocket Integrator**. Circumvents REST API bottlenecks entirely by subscribing to a standard native price stream.
 
