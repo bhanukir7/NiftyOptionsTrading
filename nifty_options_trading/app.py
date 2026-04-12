@@ -553,19 +553,19 @@ def _run_monitor(req: MonitorRequest) -> dict:
     return {
         "symbol":         stock_code,
         "expiry":         req.expiry,
-        "max_pain":       max_pain,
+        "max_pain":       float(max_pain),
         "dte":            dte,
-        "theta_defense":  theta["defense_active"],
+        "theta_defense":  bool(theta["defense_active"]),
         "theta_message":  theta["message"],
-        "pcr":            pcr,
-        "total_call_oi":  total_call_oi,
-        "total_put_oi":   total_put_oi,
+        "pcr":            float(pcr),
+        "total_call_oi":  float(total_call_oi),
+        "total_put_oi":   float(total_put_oi),
         "oi_table": [
             {
                 "strike":   float(row["strike"]),
                 "call_oi":  float(row["call_oi"]),
                 "put_oi":   float(row["put_oi"]),
-                "is_max_pain": abs(float(row["strike"]) - max_pain) < 1,
+                "is_max_pain": bool(abs(float(row["strike"]) - max_pain) < 1),
             }
             for _, row in merged.iterrows()
         ],
