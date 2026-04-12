@@ -278,6 +278,21 @@
   hr { border: none; border-top: 1px solid var(--border2); margin: 14px 0; }
 
   canvas { display: block; width: 100%; }
+
+  /* ── Switch Toggle ──────────────────────────────────────────────── */
+  .switch-wrap { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; margin-top: 8px; }
+  .switch { 
+    position: relative; display: inline-block; width: 38px; height: 20px; 
+    background: var(--bg4); border-radius: 10px; transition: .3s; border: 1px solid var(--border);
+  }
+  .switch::after {
+    content: ''; position: absolute; left: 3px; top: 3px; width: 12px; height: 12px;
+    background: var(--text3); border-radius: 50%; transition: .3s;
+  }
+  input:checked + .switch { background: rgba(99,102,241,.2); border-color: var(--blue); }
+  input:checked + .switch::after { transform: translateX(18px); background: var(--blue-txt); }
+  .switch-wrap.is-live input:checked + .switch { background: var(--red-dim); border-color: var(--red); }
+  .switch-wrap.is-live input:checked + .switch::after { background: var(--red-txt); }
 </style>
 </head>
 <body>
@@ -614,8 +629,13 @@
         <div id="engine-status-badge" class="badge badge-hold" style="text-align:center; width:100%">STAT: IDLE</div>
         <button class="btn" id="btn-engine-toggle" onclick="toggleEngine()" style="margin-top:0">Start Autonomous Engine 🚀</button>
         <div style="font-size:10px; color:var(--text3); text-align:center">
-          Mode: <span style="color:var(--orange-txt)">PAPER TRADE ACTIVE</span>
+          Mode: <span id="engine-mode-text" style="color:var(--orange-txt)">PAPER TRADE ACTIVE</span>
         </div>
+        <label class="switch-wrap" id="engine-mode-wrap">
+          <input type="checkbox" id="engine-paper-toggle" checked style="display:none" onclick="toggleEngineMode()">
+          <div class="switch"></div>
+          <span class="switch-label" id="engine-mode-label">Paper Trading</span>
+        </label>
       </div>
     </div>
     <div class="card">
@@ -1217,6 +1237,17 @@ async function toggleEngine() {
   }
 }
 
+async function toggleEngineMode() {
+  const isPaper = g('engine-paper-toggle').checked;
+  try {
+    await apiFetch('/api/engine/mode', 'POST', { paper_trade: isPaper });
+    await refreshEngineStatus();
+  } catch (e) {
+    alert("Mode Switch Error: " + e.message);
+    g('engine-paper-toggle').checked = !isPaper; // Revert UI
+  }
+}
+
 async function refreshEngineStatus() {
   try {
     const [status, logData] = await Promise.all([
@@ -1237,6 +1268,25 @@ async function refreshEngineStatus() {
         badge.textContent = "STAT: IDLE";
         btn.textContent = "Start Autonomous Engine 🚀";
         btn.style.background = "";
+    }
+
+    // Update Mode UI
+    const modeText = g('engine-mode-text');
+    const modeLabel = g('engine-mode-label');
+    const modeWrap = g('engine-mode-wrap');
+    const modeToggle = g('engine-paper-toggle');
+    
+    modeToggle.checked = status.paper_trade;
+    if (status.paper_trade) {
+        modeText.textContent = "PAPER TRADE ACTIVE";
+        modeText.style.color = "var(--orange-txt)";
+        modeLabel.textContent = "Paper Trading";
+        modeWrap.classList.remove('is-live');
+    } else {
+        modeText.textContent = "LIVE TRADING (BETA)";
+        modeText.style.color = "var(--red-txt)";
+        modeLabel.textContent = "Live Execution";
+        modeWrap.classList.add('is-live');
     }
 
     g('eng-trades').textContent = status.trades_today || 0;

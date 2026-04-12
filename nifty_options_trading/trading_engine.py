@@ -23,7 +23,7 @@ from nifty_options_trading.rule_engine import (
     StateManager, Config, determine_bias, can_trade, Position,
     validate_entry, calculate_position_size, can_take_new_trade_time, manage_trade, update_profit, update_loss
 )
-from nifty_options_trading.options_engine import get_option_chain
+from nifty_options_trading.options_engine import get_option_chain, get_expiries
 from nifty_options_trading.max_pain import calculate_max_pain
 from nifty_options_trading.alerts import send_alert
 
@@ -143,8 +143,14 @@ class AutonomousEngine:
 
             # 2. Max Pain Strategy (if enabled)
             if self.config.enable_maxpain_strategy:
-                # Need option chain
-                chain_res = get_option_chain(self.breeze, symbol, "", "CE") # Uses 15s cache
+                # Resolve nearest expiry
+                expiries = get_expiries(symbol, "CE")
+                if not expiries:
+                    return
+                expiry = expiries[0].strftime("%Y-%m-%d")
+
+                # Fetch option chain
+                chain_res = get_option_chain(self.breeze, symbol, expiry) 
                 if chain_res is not None:
                     max_pain = calculate_max_pain(chain_res)
                     # Convert chain to list of dicts for the strategy

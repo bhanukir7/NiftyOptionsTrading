@@ -99,6 +99,10 @@ async def index():
     return DASHBOARD_PATH.read_text(encoding="utf-8")
 
 
+class EngineModeRequest(BaseModel):
+    paper_trade: bool
+
+
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup_event():
@@ -740,6 +744,15 @@ async def engine_toggle():
         _engine.start()
         return {"status": "running", "message": "Engine started successfully."}
 
+@app.post("/api/engine/mode")
+async def engine_mode(req: EngineModeRequest):
+    if not _engine:
+        raise HTTPException(status_code=500, detail="Engine not initialized")
+    _engine.config.paper_trade = req.paper_trade
+    mode_str = "PAPER TRADE" if req.paper_trade else "LIVE (BETA)"
+    _engine.log(f"Trading mode switched to: {mode_str}")
+    return {"status": "success", "paper_trade": req.paper_trade}
+
 @app.get("/api/engine/status")
 async def engine_status():
     if not _engine:
@@ -747,6 +760,7 @@ async def engine_status():
     
     return {
         "is_running": _engine._is_running,
+        "paper_trade": _engine.config.paper_trade,
         "trades_today": _engine.state.trades_today,
         "daily_pnl": round(_engine.state.daily_pnl, 2),
         "current_bias": _engine.state.current_bias,
