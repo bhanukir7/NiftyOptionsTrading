@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 from dotenv import load_dotenv
 import pandas as pd
+pd.set_option('future.no_silent_downcasting', True)
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
