@@ -13,7 +13,12 @@ class RateLimiter:
         self.max_per_min = max_per_min
         self.max_per_day = max_per_day
         if file_path is None:
-            self.file_path = os.path.join(os.path.dirname(__file__), 'api_usage.json')
+            # Point to logs/ in the project root (relative to this file's parent's parent)
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            logs_dir = os.path.join(root_dir, 'logs')
+            if not os.path.exists(logs_dir):
+                os.makedirs(logs_dir, exist_ok=True)
+            self.file_path = os.path.join(logs_dir, 'api_usage.json')
         else:
             self.file_path = file_path
             

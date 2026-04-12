@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nifty Options Trading Suite</title>
+<meta name="description" content="Live analysis dashboard for Nifty Options Trading — V3 multi-strike evaluator, BTST scorer, Global Macro confluence, Max-Pain monitor, and Risk Engine simulator.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  /* ── Design Tokens ──────────────────────────────────────────────── */
+  :root {
+    --bg:     #09090f;
+    --bg2:    #111118;
+    --bg3:    #1a1a24;
+    --bg4:    #22222e;
+    --border: #2a2a3a;
+    --border2:#1e1e2a;
+    --text:   #e8eaf6;
+    --text2:  #9093b0;
+    --text3:  #5c5f7a;
+    --green:  #22c55e; --green-dim: #0f2a1a; --green-txt: #4ade80;
+    --red:    #ef4444; --red-dim:   #2a0f0f; --red-txt:   #f87171;
+    --orange: #f59e0b; --orange-dim:#2a1f05; --orange-txt:#fbbf24;
+    --blue:   #6366f1; --blue-dim:  #1a1a30; --blue-txt:  #818cf8;
+    --purple: #a855f7; --purple-dim:#1f1030; --purple-txt:#c084fc;
+    --cyan:   #06b6d4; --cyan-dim:  #062a30; --cyan-txt:  #22d3ee;
+    --radius: 10px; --radius-sm: 6px; --radius-lg: 16px;
+    --shadow: 0 4px 24px rgba(0,0,0,.45);
+    --glow-blue: 0 0 20px rgba(99,102,241,.18);
+    --glow-green: 0 0 20px rgba(34,197,94,.15);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Animated background grid ───────────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: -1;
+    background-image:
+      linear-gradient(var(--border2) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border2) 1px, transparent 1px);
+    background-size: 48px 48px;
+    opacity: .4;
+  }
+  body::after {
+    content: '';
+    position: fixed; inset: 0; z-index: -1;
+    background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(99,102,241,.12), transparent);
+    pointer-events: none;
+  }
+
+  /* ── Layout ─────────────────────────────────────────────────────── */
+  .container { max-width: 1300px; margin: 0 auto; padding: 0 20px 60px; }
+
+  /* ── Header ─────────────────────────────────────────────────────── */
+  .header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 20px 0 18px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(9,9,15,.88);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .header-logo {
+    width: 38px; height: 38px; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--blue), var(--purple));
+    border-radius: var(--radius); display: grid; place-items: center;
+    font-size: 18px; box-shadow: var(--glow-blue);
+  }
+  .header-text h1 { font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
+  .header-text p  { font-size: 11px; color: var(--text3); margin-top: 2px; }
+  .header-badges  { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+  .chip {
+    padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 500;
+    border: 1px solid var(--border); background: var(--bg3); color: var(--text2);
+    white-space: nowrap;
+  }
+  .chip.live { border-color: var(--green); color: var(--green-txt); }
+  .chip.live::before { content: '●'; margin-right: 5px; animation: blink 1.6s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+
+  /* ── Tabs ───────────────────────────────────────────────────────── */
+  .tabs-wrap {
+    display: flex; gap: 2px; background: var(--bg2); border-radius: var(--radius-lg);
+    padding: 4px; margin-bottom: 22px;
+    border: 1px solid var(--border); overflow-x: auto;
+  }
+  .tab-btn {
+    flex: 1; min-width: 110px; padding: 9px 16px; font-size: 12px; font-weight: 500;
+    cursor: pointer; border-radius: 8px; text-align: center;
+    color: var(--text3); transition: all .2s; border: none; background: transparent;
+    white-space: nowrap;
+  }
+  .tab-btn.active {
+    background: linear-gradient(135deg, var(--blue-dim), rgba(168,85,247,.12));
+    color: var(--blue-txt); border: 1px solid rgba(99,102,241,.35);
+    box-shadow: var(--glow-blue);
+  }
+  .tab-btn:not(.active):hover { background: var(--bg3); color: var(--text2); }
+  .panel { display: none; }
+  .panel.active { display: block; animation: fadeIn .25s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+
+  /* ── Cards ──────────────────────────────────────────────────────── */
+  .card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 18px;
+    box-shadow: var(--shadow);
+  }
+  .card-title {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .8px; color: var(--text3); margin-bottom: 14px;
+  }
+  .card + .card, .card + .grid, .grid + .card { margin-top: 12px; }
+
+  /* ── Grid ───────────────────────────────────────────────────────── */
+  .grid { display: grid; gap: 10px; }
+  .g2 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .g3 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .g4 { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+
+  /* ── Form Elements ──────────────────────────────────────────────── */
+  label { font-size: 11px; color: var(--text2); display: block; margin-bottom: 5px; font-weight: 500; }
+  input, select {
+    width: 100%; font-size: 13px; font-family: 'Inter', sans-serif;
+    padding: 8px 11px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg3); color: var(--text); outline: none; transition: border .15s, box-shadow .15s;
+  }
+  input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(99,102,241,.15); }
+  select option { background: var(--bg3); }
+
+  /* ── Buttons ────────────────────────────────────────────────────── */
+  .btn {
+    width: 100%; padding: 10px 18px; font-size: 13px; font-weight: 600;
+    cursor: pointer; border-radius: var(--radius); border: none;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    color: #fff; margin-top: 10px; transition: opacity .15s, transform .1s;
+    letter-spacing: .2px; position: relative; overflow: hidden;
+  }
+  .btn::after { content:''; position:absolute; inset:0; background:rgba(255,255,255,0); transition:.15s; }
+  .btn:hover { opacity:.9; transform: translateY(-1px); }
+  .btn:hover::after { background:rgba(255,255,255,.06); }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity:.35; cursor:not-allowed; transform:none; }
+  .btn-spinning::after { content:' ⟳'; animation: spin .8s linear infinite; display:inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .btn-sm {
+    width: auto; display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; font-size: 12px; margin-top: 0; border-radius: var(--radius-sm);
+  }
+
+  /* ── Metric tiles ───────────────────────────────────────────────── */
+  .metric {
+    background: var(--bg3); border-radius: var(--radius-sm); padding: 12px 15px;
+    border: 1px solid var(--border2); transition: background .15s;
+  }
+  .metric:hover { background: var(--bg4); }
+  .metric-label { font-size: 10px; color: var(--text3); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .4px; }
+  .metric-value { font-size: 18px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+
+  /* ── Badges ─────────────────────────────────────────────────────── */
+  .badge {
+    display: inline-block; padding: 3px 12px; border-radius: 20px;
+    font-size: 12px; font-weight: 700; letter-spacing: .3px;
+  }
+  .badge-buy,  .badge-bullish  { background: var(--green-dim); color: var(--green-txt); border: 1px solid rgba(34,197,94,.3); }
+  .badge-sell, .badge-bearish  { background: var(--red-dim);   color: var(--red-txt);   border: 1px solid rgba(239,68,68,.3); }
+  .badge-wait, .badge-neutral  { background: var(--orange-dim);color: var(--orange-txt);border: 1px solid rgba(245,158,11,.3); }
+  .badge-hold, .badge-flat     { background: var(--bg4);       color: var(--text2);     border: 1px solid var(--border); }
+  .badge-warn                  { background: var(--orange-dim);color: var(--orange-txt);border: 1px solid rgba(245,158,11,.4); }
+
+  /* ── Signal rows ─────────────────────────────────────────────────── */
+  .sig-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 0; border-bottom: 1px solid var(--border2); font-size: 11px;
+  }
+  .sig-row:last-child { border-bottom: none; }
+  .sig-name { width: 110px; color: var(--text2); flex-shrink: 0; }
+  .sig-val  { width: 60px; text-align: right; color: var(--text3); flex-shrink: 0; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+  .bar-bg   { flex: 1; height: 4px; background: var(--bg4); border-radius: 2px; overflow: hidden; }
+  .bar-fill { height: 4px; border-radius: 2px; transition: width .5s cubic-bezier(.4,0,.2,1); }
+
+  /* ── Tables ─────────────────────────────────────────────────────── */
+  .tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .tbl th { padding: 7px 10px; color: var(--text3); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); text-align: left; }
+  .tbl td { padding: 8px 10px; border-bottom: 1px solid var(--border2); }
+  .tbl tr:hover td { background: rgba(255,255,255,.025); }
+
+  /* ── Error / warn boxes ─────────────────────────────────────────── */
+  .error-box { background: var(--red-dim); border: 1px solid rgba(239,68,68,.4); border-radius: var(--radius); padding: 11px 15px; font-size: 12px; color: var(--red-txt); margin-top: 10px; }
+  .warn-box  { background: var(--orange-dim); border: 1px solid rgba(245,158,11,.4); border-radius: var(--radius); padding: 11px 15px; font-size: 12px; color: var(--orange-txt); margin-top: 10px; }
+  .info-box  { background: var(--blue-dim);   border: 1px solid rgba(99,102,241,.35);  border-radius: var(--radius); padding: 11px 15px; font-size: 12px; color: var(--blue-txt); margin-top: 10px; }
+
+  /* ── Colours ────────────────────────────────────────────────────── */
+  .pos  { color: var(--green-txt); }
+  .neg  { color: var(--red-txt); }
+  .neu  { color: var(--orange-txt); }
+  .dim  { color: var(--text3); }
+  .mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+
+  /* ── Progress bar (API usage) ───────────────────────────────────── */
+  .progress-track { height: 8px; background: var(--bg4); border-radius: 4px; overflow: hidden; margin: 8px 0; }
+  .progress-fill  { height: 8px; border-radius: 4px; transition: width .5s; background: linear-gradient(90deg, var(--green), var(--cyan)); }
+  .progress-fill.warn { background: linear-gradient(90deg, var(--orange), var(--red)); }
+
+  /* ── Score gauge (BTST) ─────────────────────────────────────────── */
+  .gauge-wrap  { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .gauge-score { font-size: 48px; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: -2px; }
+  .gauge-label { font-size: 11px; color: var(--text3); }
+
+  /* ── World market ticker ────────────────────────────────────────── */
+  .region-title {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px;
+    color: var(--text3); padding: 8px 0 4px; border-bottom: 1px solid var(--border2);
+    margin-bottom: 6px; display: flex; align-items: center; gap: 8px;
+  }
+  .region-title::after { content:''; flex:1; height:1px; background: var(--border2); }
+  .mkt-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.03);
+    font-size: 12px; gap: 8px;
+  }
+  .mkt-row:last-child { border-bottom: none; }
+  .mkt-name  { flex: 1; color: var(--text2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mkt-price { width: 80px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text3); }
+  .mkt-chg   { width: 72px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; }
+  .mkt-bar   { width: 60px; overflow: hidden; }
+  .mkt-mini  { height: 4px; border-radius: 2px; transition: width .4s; }
+
+  /* ── OI chart bars ──────────────────────────────────────────────── */
+  .oi-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 10px; }
+  .oi-strike { width: 55px; font-family:'JetBrains Mono',monospace; color: var(--text2); flex-shrink: 0; }
+  .oi-call-bar-wrap { flex: 1; display: flex; justify-content: flex-end; }
+  .oi-put-bar-wrap  { flex: 1; }
+  .oi-call-bar { height: 14px; background: rgba(239,68,68,.55); border-radius: 2px 0 0 2px; transition: width .4s; }
+  .oi-put-bar  { height: 14px; background: rgba(34,197,94,.55); border-radius: 0 2px 2px 0; transition: width .4s; }
+  .oi-max-pain .oi-strike { color: var(--orange-txt); font-weight: 700; }
+  .oi-max-pain .oi-call-bar { background: rgba(245,158,11,.75); }
+  .oi-max-pain .oi-put-bar  { background: rgba(245,158,11,.75); }
+
+  /* ── Risk engine go/no-go ───────────────────────────────────────── */
+  .check-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border2); margin-bottom: 6px;
+    font-size: 12px; transition: background .15s;
+  }
+  .check-icon { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; flex-shrink: 0; }
+  .check-ok  { background: var(--green-dim); } .check-ok .check-icon  { background: rgba(34,197,94,.2); color: var(--green-txt); }
+  .check-bad { background: var(--red-dim); }   .check-bad .check-icon { background: rgba(239,68,68,.2); color: var(--red-txt); }
+
+  /* ── Strike table tags ──────────────────────────────────────────── */
+  .tag-atm  { background: rgba(99,102,241,.2);  color: var(--blue-txt);   border: 1px solid rgba(99,102,241,.35);  padding: 2px 7px; border-radius: 10px; font-size: 10px; }
+  .tag-itm  { background: var(--green-dim);     color: var(--green-txt);  border: 1px solid rgba(34,197,94,.3);   padding: 2px 7px; border-radius: 10px; font-size: 10px; }
+  .tag-otm  { background: var(--red-dim);       color: var(--red-txt);    border: 1px solid rgba(239,68,68,.3);   padding: 2px 7px; border-radius: 10px; font-size: 10px; }
+
+  /* ── Skeleton loader ─────────────────────────────────────────────── */
+  @keyframes shimmer { 0%{opacity:.35} 50%{opacity:.65} 100%{opacity:.35} }
+  .skeleton { animation: shimmer 1.4s ease-in-out infinite; background: var(--bg3); border-radius: 4px; height: 14px; margin: 4px 0; }
+
+  /* ── Scrollbar ──────────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 3px; }
+
+  /* ── Divider ─────────────────────────────────────────────────────── */
+  hr { border: none; border-top: 1px solid var(--border2); margin: 14px 0; }
+
+  canvas { display: block; width: 100%; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<!-- ══ HEADER ══════════════════════════════════════════════════════════════ -->
+<header class="header">
+  <div class="header-logo">🚀</div>
+  <div class="header-text">
+    <h1>Nifty Options Trading Suite</h1>
+    <p>V3 Intraday · BTST · Global Macro · Max-Pain · Risk Engine</p>
+  </div>
+  <div class="header-badges">
+    <span class="chip live" id="hdr-api">ICICI Breeze</span>
+    <span class="chip" id="hdr-usage">— calls today</span>
+    <span class="chip" id="hdr-time">—</span>
+  </div>
+</header>
+
+<!-- ══ TABS ════════════════════════════════════════════════════════════════ -->
+<div class="tabs-wrap" role="tablist">
+  <button class="tab-btn active" id="tab-v3"     onclick="switchTab('v3')"     role="tab">📊 V3 Multi-Strike</button>
+  <button class="tab-btn"        id="tab-btst"   onclick="switchTab('btst')"   role="tab">📅 BTST Evaluator</button>
+  <button class="tab-btn"        id="tab-global" onclick="switchTab('global')" role="tab">🌍 Global Macro</button>
+  <button class="tab-btn"        id="tab-monitor"onclick="switchTab('monitor')"role="tab">🔭 Max-Pain Monitor</button>
+  <button class="tab-btn"        id="tab-risk"   onclick="switchTab('risk')"   role="tab">⚙️ Risk Engine</button>
+  <button class="tab-btn"        id="tab-usage"  onclick="switchTab('usage')"  role="tab">📈 API Usage</button>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     TAB 1 — V3 MULTI-STRIKE
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="panel-v3" class="panel active">
+  <div class="card">
+    <div class="card-title">Contract Parameters</div>
+    <div class="grid g3">
+      <div><label>Symbol</label><input id="v3-sym" value="NIFTY" oninput="this.value=this.value.toUpperCase()" onchange="v3LoadExpiries()"></div>
+      <div>
+        <label>Option Type</label>
+        <select id="v3-type" onchange="v3LoadExpiries()">
+          <option value="CE">CE — Call</option>
+          <option value="PE">PE — Put</option>
+        </select>
+      </div>
+      <div>
+        <label>Expiry Date</label>
+        <select id="v3-expiry"><option value="">⏳ loading…</option></select>
+      </div>
+      <div><label>Capital (₹)</label><input type="number" id="v3-cap" value="50000"></div>
+    </div>
+  </div>
+  <button class="btn" id="btn-v3" onclick="runV3()">Analyse Multi-Strike ↗</button>
+  <div id="v3-error" class="error-box" style="display:none"></div>
+
+  <div id="v3-result" style="display:none;margin-top:14px">
+    <!-- Top metrics -->
+    <div class="grid g4" style="margin-bottom:12px">
+      <div class="metric"><div class="metric-label">Signal</div><div id="v3-sig" class="metric-value"></div></div>
+      <div class="metric"><div class="metric-label">Spot Price</div><div id="v3-spot" class="metric-value"></div></div>
+      <div class="metric"><div class="metric-label">CHOP Index</div><div id="v3-chop" class="metric-value"></div></div>
+      <div class="metric"><div class="metric-label">Lot Size</div><div id="v3-lot" class="metric-value"></div></div>
+    </div>
+    <!-- Verdict -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title">Verdict</div>
+      <div id="v3-verdict" style="font-size:14px;line-height:1.6"></div>
+      <hr>
+      <div id="v3-reason" style="font-size:12px;color:var(--text2);margin-top:4px"></div>
+    </div>
+    <!-- Indicators -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title">Technical Indicators (5-Min)</div>
+      <div id="v3-indicators"></div>
+    </div>
+    <!-- Strike table -->
+    <div class="card">
+      <div class="card-title">Closest Strikes Evaluation (ITM/ATM/OTM)</div>
+      <div style="overflow-x:auto">
+        <table class="tbl" id="v3-strikes-tbl">
+          <thead><tr>
+            <th>Strike</th><th>Tag</th><th>Premium</th><th>Lots (capital)</th>
+            <th>Target +5%</th><th>Target +10%</th><th>SL -3%</th>
+          </tr></thead>
+          <tbody id="v3-strikes-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     TAB 2 — BTST EVALUATOR
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="panel-btst" class="panel">
+  <div style="margin-bottom:12px">
+    <div class="card">
+      <div class="card-title">BTST Contract Parameters</div>
+      <div class="grid g4">
+        <div><label>Symbol</label><input id="bt-sym" value="NIFTY" oninput="this.value=this.value.toUpperCase()" onchange="btLoadExpiries()"></div>
+        <div>
+          <label>Option Type</label>
+          <select id="bt-type" onchange="btLoadExpiries()">
+            <option value="CE">CE — Call</option>
+            <option value="PE">PE — Put</option>
+          </select>
+        </div>
+        <div><label>Expiry Date</label><select id="bt-expiry" onchange="btLoadStrikes()"><option value="">⏳ loading…</option></select></div>
+        <div><label>Strike (₹)</label><select id="bt-strike"><option value="">— select expiry —</option></select></div>
+        <div><label>Capital (₹)</label><input type="number" id="bt-cap" value="50000"></div>
+      </div>
+    </div>
+  </div>
+  <button class="btn" id="btn-btst" onclick="runBTST()">Evaluate BTST Setup ↗</button>
+  <div id="btst-error" class="error-box" style="display:none"></div>
+
+  <div id="btst-result" style="display:none;margin-top:14px">
+    <div class="grid g2" style="margin-bottom:12px; align-items: start">
+      <!-- Score gauge -->
+      <div class="card" style="text-align:center">
+        <div class="card-title">BTST Score</div>
+        <div class="gauge-wrap">
+          <div class="gauge-score" id="bt-score-val">—</div>
+          <div id="bt-score-bar" style="width:80%;height:8px;border-radius:4px;margin:4px auto;background:var(--bg4)">
+            <div id="bt-score-fill" style="height:8px;border-radius:4px;transition:width .6s"></div>
+          </div>
+          <div class="gauge-label">out of 100</div>
+          <div id="bt-verdict" style="margin-top:10px;font-size:14px;font-weight:600"></div>
+        </div>
+      </div>
+      <!-- Sub-score breakdown -->
+      <div class="card">
+        <div class="card-title">Score Breakdown</div>
+        <div id="btst-sub-scores"></div>
+      </div>
+    </div>
+    <!-- Trade setup -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title">Trade Setup</div>
+      <div class="grid g4">
+        <div class="metric"><div class="metric-label">Live Premium</div><div id="bt-ltp" class="metric-value"></div></div>
+        <div class="metric"><div class="metric-label">Target +15%</div><div id="bt-t1" class="metric-value pos"></div></div>
+        <div class="metric"><div class="metric-label">Target +30%</div><div id="bt-t2" class="metric-value pos"></div></div>
+        <div class="metric"><div class="metric-label">Stop -10%</div><div id="bt-sl" class="metric-value neg"></div></div>
+        <div class="metric"><div class="metric-label">Lots (capital)</div><div id="bt-lots" class="metric-value"></div></div>
+        <div class="metric"><div class="metric-label">PCR</div><div id="bt-pcr" class="metric-value"></div></div>
+        <div class="metric"><div class="metric-label">IV Percentile</div><div id="bt-ivp" class="metric-value"></div></div>
+        <div class="metric"><div class="metric-label">Support Below</div><div id="bt-sup" class="metric-value"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     TAB 3 — GLOBAL MACRO
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="panel-global" class="panel">
+  <div class="grid g2" style="margin-bottom:12px; align-items: start">
+    <!-- Left: contract inputs + local signal -->
+    <div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title">Contract (Optional — for LTP lookup)</div>
+        <div class="grid g2">
+          <div><label>Symbol</label><input id="gl-sym" value="NIFTY" oninput="this.value=this.value.toUpperCase()" onchange="glLoadExpiries()"></div>
+          <div>
+            <label>Option Type</label>
+            <select id="gl-type" onchange="glLoadExpiries()">
+              <option value="CE">CE — Call</option>
+              <option value="PE">PE — Put</option>
+            </select>
+          </div>
+          <div><label>Expiry Date</label><select id="gl-expiry" onchange="glLoadStrikes()"><option value="">⏳ loading…</option></select></div>
+          <div><label>Strike (₹)</label><select id="gl-strike"><option value="">— select expiry —</option></select></div>
+          <div><label>Capital (₹)</label><input type="number" id="gl-cap" value="50000"></div>
+        </div>
+      </div>
+      <button class="btn" id="btn-global" onclick="runGlobal()">Analyse Global Macro ↗</button>
+      <div id="global-error" class="error-box" style="display:none"></div>
+      <div id="global-local-result" style="display:none;margin-top:12px">
+        <div class="card">
+          <div class="card-title">Local 1-Day Signal</div>
+          <div class="grid g2">
+            <div class="metric"><div class="metric-label">Signal</div><div id="gl-sig" class="metric-value"></div></div>
+            <div class="metric"><div class="metric-label">Close Strength</div><div id="gl-cs" class="metric-value"></div></div>
+            <div class="metric"><div class="metric-label">MACD Hist</div><div id="gl-macd" class="metric-value mono"></div></div>
+            <div class="metric"><div class="metric-label">Spot (1D)</div><div id="gl-close" class="metric-value"></div></div>
+          </div>
+          <hr>
+          <div id="gl-verdict" style="font-size:14px;font-weight:600;margin-top:4px"></div>
+          <div id="gl-reason" style="font-size:11px;color:var(--text2);margin-top:6px"></div>
+        </div>
+        <div class="card" style="margin-top:10px">
+          <div class="card-title">Contract LTP</div>
+          <div class="grid g4">
+            <div class="metric"><div class="metric-label">Premium</div><div id="gl-ltp" class="metric-value"></div></div>
+            <div class="metric"><div class="metric-label">Target +15%</div><div id="gl-t1" class="metric-value pos"></div></div>
+            <div class="metric"><div class="metric-label">Target +30%</div><div id="gl-t2" class="metric-value pos"></div></div>
+            <div class="metric"><div class="metric-label">Stop -10%</div><div id="gl-sl" class="metric-value neg"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Right: live world markets (loads independently) -->
+    <div>
+      <div class="card">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+          <span>World Markets — Live (yfinance)</span>
+          <button class="btn btn-sm" onclick="loadWorldMarkets()" style="background:var(--bg3);color:var(--blue-txt);border:1px solid var(--border)">↺ Refresh</button>
+        </div>
+        <div id="global-state-bar" style="display:flex;gap:16px;margin-bottom:12px;font-size:13px">
+          <span>Global: <b id="gl-state">—</b></span>
+          <span class="pos" id="gl-up-ct">—↑</span>
+          <span class="neg" id="gl-dn-ct">—↓</span>
+        </div>
+        <div id="world-markets-list">
+          <div class="skeleton" style="height:12px;width:80%"></div>
+          <div class="skeleton" style="height:12px;width:60%;margin-top:6px"></div>
+          <div class="skeleton" style="height:12px;width:70%;margin-top:6px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     TAB 4 — MAX-PAIN MONITOR
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="panel-monitor" class="panel">
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title">Option Chain Parameters</div>
+    <div class="grid g3">
+      <div><label>Symbol</label><input id="mn-sym" value="NIFTY" oninput="this.value=this.value.toUpperCase()" onchange="mnLoadExpiries()"></div>
+      <div><label>Expiry Date</label><select id="mn-expiry"><option value="">⏳ loading…</option></select></div>
+    </div>
+  </div>
+  <button class="btn" id="btn-monitor" onclick="runMonitor()">Fetch Snapshot ↗</button>
+  <div id="monitor-error" class="error-box" style="display:none"></div>
+
+  <div id="monitor-result" style="display:none;margin-top:14px">
+    <div class="grid g4" style="margin-bottom:12px">
+      <div class="metric"><div class="metric-label">Max Pain</div><div id="mn-maxpain" class="metric-value neu"></div></div>
+      <div class="metric"><div class="metric-label">DTE</div><div id="mn-dte" class="metric-value"></div></div>
+      <div class="metric"><div class="metric-label">PCR</div><div id="mn-pcr" class="metric-value"></div></div>
+      <div class="metric"><div class="metric-label">Theta Defense</div><div id="mn-theta" class="metric-value"></div></div>
+      <div class="metric"><div class="metric-label">Total Call OI</div><div id="mn-coi" class="metric-value neg"></div></div>
+      <div class="metric"><div class="metric-label">Total Put OI</div><div id="mn-poi" class="metric-value pos"></div></div>
+    </div>
+    <div id="mn-theta-warn" class="warn-box" style="display:none"></div>
+    <div class="card" style="margin-top:12px">
+      <div class="card-title">Open Interest Profile (Call 🔴 / Put 🟢 | 🟡 Max Pain)</div>
+      <div id="oi-chart"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     TAB 5 — RISK ENGINE
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="panel-risk" class="panel">
+  <div class="grid g2" style="margin-bottom:12px">
+    <div class="card">
+      <div class="card-title">Rule Engine Config</div>
+      <div class="grid g2">
+        <div><label>Capital (₹)</label><input type="number" id="re-cap" value="50000"></div>
+        <div><label>Premium (₹)</label><input type="number" id="re-prem" value="100"></div>
+        <div><label>Option Type</label>
+          <select id="re-type">
+            <option value="CE">CE — Call</option>
+            <option value="PE">PE — Put</option>
+          </select>
+        </div>
+        <div><label>Max Trades / Day</label><input type="number" id="re-maxtr" value="5"></div>
+        <div><label>Daily Loss Limit (₹)</label><input type="number" id="re-dll" value="-5000"></div>
+        <div><label>Risk per Trade %</label><input type="number" id="re-rpt" value="2" step="0.5"></div>
+        <div><label>Stop Loss %</label><input type="number" id="re-sl" value="25"></div>
+        <div><label>Cooldown (mins)</label><input type="number" id="re-cool" value="20"></div>
+        <div><label>Max Consec. Losses</label><input type="number" id="re-mcl" value="2"></div>
+        <div><label>Max Intraday Move %</label><input type="number" id="re-mim" value="2.5" step="0.5"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Simulated State</div>
+      <div class="grid g2">
+        <div><label>Spot Price (₹)</label><input type="number" id="re-spot" value="22000"></div>
+        <div><label>VWAP (₹)</label><input type="number" id="re-vwap" value="21900"></div>
+        <div><label>Trades Today</label><input type="number" id="re-tt" value="0"></div>
+        <div><label>Consecutive Losses</label><input type="number" id="re-cl" value="0"></div>
+        <div><label>Daily PnL (₹)</label><input type="number" id="re-dpnl" value="0"></div>
+        <div><label>Intraday Move %</label><input type="number" id="re-im" value="0.5" step="0.1"></div>
+        <div><label>Mins Since Last Trade</label><input type="number" id="re-mlt" value="30"></div>
+      </div>
+    </div>
+  </div>
+  <button class="btn" id="btn-risk" onclick="runRisk()">Simulate Rule Engine ↗</button>
+  <div id="risk-error" class="error-box" style="display:none"></div>
+  <div id="risk-result" style="display:none;margin-top:14px">
+    <div class="grid g2" style="margin-bottom:12px; align-items: start">
+      <div class="card">
+        <div class="card-title">Go / No-Go Checks</div>
+        <div id="risk-checks"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Position Sizing</div>
+        <div class="grid g2">
+          <div class="metric"><div class="metric-label">Quantity</div><div id="re-qty" class="metric-value"></div></div>
+          <div class="metric"><div class="metric-label">Risk Amount</div><div id="re-risk" class="metric-value neg"></div></div>
+          <div class="metric"><div class="metric-label">Entry</div><div id="re-entry" class="metric-value"></div></div>
+          <div class="metric"><div class="metric-label">Target</div><div id="re-tgt" class="metric-value pos"></div></div>
+          <div class="metric"><div class="metric-label">Stop Loss</div><div id="re-stpl" class="metric-value neg"></div></div>
+          <div class="metric"><div class="metric-label">Bias</div><div id="re-bias" class="metric-value"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     TAB 6 — API USAGE
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="panel-usage" class="panel">
+  <div class="card" style="max-width:600px">
+    <div class="card-title">ICICI Breeze API Usage — Today</div>
+    <div class="grid g3" style="margin-bottom:14px">
+      <div class="metric"><div class="metric-label">Calls Used</div><div id="us-used" class="metric-value"></div></div>
+      <div class="metric"><div class="metric-label">Remaining</div><div id="us-rem" class="metric-value pos"></div></div>
+      <div class="metric"><div class="metric-label">Daily Limit</div><div id="us-max" class="metric-value dim"></div></div>
+    </div>
+    <div class="progress-track"><div class="progress-fill" id="us-bar"></div></div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-top:4px">
+      <span id="us-pct"></span>
+      <span id="us-ts"></span>
+    </div>
+    <div id="us-warn" style="display:none" class="warn-box">⚠ API usage is above 80%. Non-critical polling is suspended.</div>
+  </div>
+  <button class="btn" style="max-width:200px;margin-top:12px" onclick="loadUsage()">↺ Refresh</button>
+</div>
+</div><!-- /container -->
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+//  Utilities
+// ══════════════════════════════════════════════════════════════════════════════
+function g(id) { return document.getElementById(id); }
+function sv(id){ return g(id) ? g(id).value.trim() : ''; }
+function fv(id){ return parseFloat(g(id).value) || 0; }
+function iv(id){ return parseInt(g(id).value) || 0; }
+
+function fmtINR(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return '₹' + Number(n).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtNum(n, d=2) { return (n != null && !isNaN(n)) ? Number(n).toFixed(d) : '—'; }
+function fmtPct(n)       { return (n != null && !isNaN(n)) ? n.toFixed(2) + '%' : '—'; }
+function fmtK(n)         { return Math.abs(n) >= 1e6 ? (n/1e6).toFixed(2)+'M' : Math.abs(n) >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n); }
+
+function setLoading(btnId, on) {
+  const b = g(btnId);
+  b.disabled = on;
+  b.classList.toggle('btn-spinning', on);
+}
+function showErr(id, msg) { g(id).textContent = '❌ ' + msg; g(id).style.display = 'block'; }
+function hideErr(id)      { g(id).style.display = 'none'; }
+
+async function apiFetch(url, method='GET', body=null) {
+  const opts = { method, headers: {'Content-Type':'application/json'} };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({detail: `HTTP ${res.status}`}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+const TABS = ['v3','btst','global','monitor','risk','usage'];
+function switchTab(id) {
+  TABS.forEach(t => {
+    g('panel-'+t).classList.toggle('active', t===id);
+    g('tab-'+t).classList.toggle('active', t===id);
+  });
+  if (id === 'usage') loadUsage();
+  if (id === 'global') loadWorldMarkets();
+}
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  const ist = new Date(now.getTime() + (5.5 * 3600000) - (now.getTimezoneOffset() * 60000));
+  g('hdr-time').textContent = ist.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}) + ' IST';
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  Security Master helpers (shared expiry/strike loaders)
+// ══════════════════════════════════════════════════════════════════════════════
+async function loadExpiries(sym, type, selId) {
+  const sel = g(selId);
+  sel.innerHTML = '<option value="">⏳ loading…</option>';
+  try {
+    const { expiries } = await apiFetch(`/api/expiries?symbol=${encodeURIComponent(sym)}&option_type=${type}`);
+    sel.innerHTML = expiries.length
+      ? expiries.map(e => `<option value="${e}">${e}</option>`).join('')
+      : '<option value="">No expiries</option>';
+  } catch { sel.innerHTML = '<option value="">Error</option>'; }
+}
+
+async function loadStrikes(sym, expiry, type, selId) {
+  const sel = g(selId);
+  sel.innerHTML = '<option value="">⏳ loading…</option>';
+  if (!expiry) { sel.innerHTML = '<option value="">— select expiry first —</option>'; return; }
+  try {
+    const { strikes } = await apiFetch(`/api/strikes?symbol=${encodeURIComponent(sym)}&expiry=${expiry}&option_type=${type}`);
+    sel.innerHTML = strikes.length
+      ? strikes.map(s => `<option value="${s}">₹${Number(s).toLocaleString('en-IN')}</option>`).join('')
+      : '<option value="">No strikes</option>';
+    const mid = Math.floor(strikes.length / 2);
+    sel.selectedIndex = mid;
+  } catch { sel.innerHTML = '<option value="">Error</option>'; }
+}
+
+function v3LoadExpiries() { loadExpiries(sv('v3-sym'), sv('v3-type'), 'v3-expiry'); }
+function btLoadExpiries() { loadExpiries(sv('bt-sym'), sv('bt-type'), 'bt-expiry'); }
+function btLoadStrikes()  { loadStrikes(sv('bt-sym'), sv('bt-expiry'), sv('bt-type'), 'bt-strike'); }
+function glLoadExpiries() { loadExpiries(sv('gl-sym'), sv('gl-type'), 'gl-expiry'); }
+function glLoadStrikes()  { loadStrikes(sv('gl-sym'), sv('gl-expiry'), sv('gl-type'), 'gl-strike'); }
+function mnLoadExpiries() { loadExpiries(sv('mn-sym'), 'CE', 'mn-expiry'); }
+
+// Signal / verdict colour helper
+function sigBadge(sig) {
+  const cls = sig.includes('BUY_CALL') || sig === 'BUY' ? 'badge-buy'
+            : sig.includes('BUY_PUT') ? 'badge-sell'
+            : sig === 'HOLD' ? 'badge-hold'
+            : 'badge-wait';
+  return `<span class="badge ${cls}">${sig}</span>`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TAB 1 — V3 MULTI-STRIKE
+// ══════════════════════════════════════════════════════════════════════════════
+async function runV3() {
+  hideErr('v3-error');
+  setLoading('btn-v3', true);
+  g('v3-result').style.display = 'none';
+
+  const expiry = sv('v3-expiry');
+  if (!expiry) { showErr('v3-error', 'Select an expiry date.'); setLoading('btn-v3', false); return; }
+
+  try {
+    const d = await apiFetch('/api/v3/analyze', 'POST', {
+      symbol: sv('v3-sym'), expiry, option_type: sv('v3-type'), capital: fv('v3-cap'),
+    });
+    renderV3(d);
+  } catch(e) { showErr('v3-error', e.message); }
+  finally { setLoading('btn-v3', false); }
+}
+
+function renderV3(d) {
+  const ind = d.indicators || {};
+
+  // Top metrics
+  g('v3-sig').innerHTML  = sigBadge(d.signal);
+  g('v3-spot').textContent = fmtINR(d.spot);
+  g('v3-lot').textContent  = d.lot_size;
+
+  const chop = ind.chop || 50;
+  const chopStr = chop < 38.2 ? 'TRENDING' : chop > 61.8 ? 'CHOPPY' : 'NORMAL';
+  const chopCls = chop < 38.2 ? 'pos' : chop > 61.8 ? 'neg' : 'neu';
+  g('v3-chop').innerHTML = `<span class="${chopCls}">${fmtNum(chop)} <small style="font-size:11px">${chopStr}</small></span>`;
+
+  // Verdict
+  const vdict = d.verdict || '';
+  const vCls = vdict.includes('HIGH CONVICTION') ? 'pos' : vdict.includes('REJECT') ? 'neg' : 'neu';
+  g('v3-verdict').innerHTML = `<span class="${vCls}" style="font-size:14px">${vdict}</span>`;
+  g('v3-reason').textContent  = d.reason || '';
+
+  // Indicators
+  const bars = [
+    { name: 'MACD Hist',     val: fmtNum(ind.macd_hist,4), score: ind.macd_hist,   range: 5  },
+    { name: 'ATR',           val: fmtNum(ind.atr,2),       score: ind.atr,         range: 200 },
+    { name: 'BB Low',        val: fmtINR(ind.bb_low),      score: 0,               range: 1   },
+    { name: 'BB Mid',        val: fmtINR(ind.bb_mid),      score: 0,               range: 1   },
+    { name: 'BB High',       val: fmtINR(ind.bb_high),     score: 0,               range: 1   },
+  ];
+  const spotPct = ind.bb_high ? ((d.spot - ind.bb_low) / (ind.bb_high - ind.bb_low) * 100) : 50;
+  const macdPct = ind.macd_hist ? Math.min(100, Math.abs(ind.macd_hist) / 5 * 100) : 0;
+  const macdCol = ind.macd_hist > 0 ? '#22c55e' : '#ef4444';
+
+  g('v3-indicators').innerHTML = `
+    <div class="sig-row">
+      <span class="sig-name">MACD Hist</span>
+      <span class="sig-val">${fmtNum(ind.macd_hist,4)}</span>
+      <div class="bar-bg"><div class="bar-fill" style="width:${macdPct}%;background:${macdCol}"></div></div>
+    </div>
+    <div class="sig-row">
+      <span class="sig-name">CHOP Index</span>
+      <span class="sig-val">${fmtNum(chop,1)} (${chopStr})</span>
+      <div class="bar-bg"><div class="bar-fill" style="width:${chop}%;background:${chop<38.2?'#22c55e':chop>61.8?'#ef4444':'#f59e0b'}"></div></div>
+    </div>
+    <div class="sig-row">
+      <span class="sig-name">BB Position</span>
+      <span class="sig-val">${fmtNum(spotPct,1)}%</span>
+      <div class="bar-bg"><div class="bar-fill" style="width:${Math.max(0,Math.min(100,spotPct))}%;background:${spotPct>60?'#22c55e':spotPct<40?'#ef4444':'#f59e0b'}"></div></div>
+    </div>
+    <div class="sig-row">
+      <span class="sig-name">ATR</span>
+      <span class="sig-val">${fmtNum(ind.atr,2)}</span>
+      <div class="bar-bg"><div class="bar-fill" style="width:50%;background:#6366f1"></div></div>
+    </div>`;
+
+  // Strike table
+  const tbody = g('v3-strikes-body');
+  tbody.innerHTML = '';
+  if (!d.strikes || !d.strikes.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">No option chain data available for this expiry.</td></tr>';
+  } else {
+    d.strikes.forEach(s => {
+      const tagHtml = s.tag === 'ATM' ? '<span class="tag-atm">ATM</span>'
+                    : s.tag === 'ITM' ? '<span class="tag-itm">ITM</span>'
+                                       : '<span class="tag-otm">OTM</span>';
+      const ltpCls = s.ltp > 0 ? '' : 'dim';
+      tbody.innerHTML += `<tr>
+        <td class="mono">₹${Number(s.strike).toLocaleString('en-IN')}</td>
+        <td>${tagHtml}</td>
+        <td class="${ltpCls} mono">${s.ltp > 0 ? fmtINR(s.ltp) : '—'}</td>
+        <td>${s.num_lots > 0 ? `${s.num_lots} lots (${s.num_lots * d.lot_size} qty)` : '<span class="neg">Insufficient</span>'}</td>
+        <td class="pos mono">${s.ltp > 0 ? fmtINR(s.target1) : '—'}</td>
+        <td class="pos mono">${s.ltp > 0 ? fmtINR(s.target2) : '—'}</td>
+        <td class="neg mono">${s.ltp > 0 ? fmtINR(s.sl) : '—'}</td>
+      </tr>`;
+    });
+  }
+  g('v3-result').style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TAB 2 — BTST EVALUATOR
+// ══════════════════════════════════════════════════════════════════════════════
+async function runBTST() {
+  hideErr('btst-error');
+  setLoading('btn-btst', true);
+  g('btst-result').style.display = 'none';
+
+  const expiry = sv('bt-expiry');
+  const strike = sv('bt-strike');
+  if (!expiry || !strike) { showErr('btst-error', 'Select an expiry and strike.'); setLoading('btn-btst', false); return; }
+
+  try {
+    const d = await apiFetch('/api/btst/analyze', 'POST', {
+      symbol: sv('bt-sym'), expiry, strike: parseFloat(strike),
+      option_type: sv('bt-type'), capital: fv('bt-cap'),
+    });
+    renderBTST(d);
+  } catch(e) { showErr('btst-error', e.message); }
+  finally { setLoading('btn-btst', false); }
+}
+
+function renderBTST(d) {
+  const score = d.score || 0;
+  const scoreColor = score >= 75 ? '#22c55e' : score >= 60 ? '#6366f1' : score >= 45 ? '#f59e0b' : '#ef4444';
+
+  g('bt-score-val').textContent = score;
+  g('bt-score-val').style.color = scoreColor;
+  g('bt-score-fill').style.width = score + '%';
+  g('bt-score-fill').style.background = scoreColor;
+
+  const vdict = d.verdict || '';
+  const vCls = vdict.includes('HIGH') ? 'pos' : vdict.includes('MODERATE') ? 'neu' : 'neg';
+  g('bt-verdict').innerHTML = `<span class="${vCls}">${vdict}</span>`;
+
+  // Sub-scores
+  const ss = d.sub_scores || {};
+  const subItems = [
+    { name: 'Price Action (max 35)', val: ss.price_action || 0, max: 35, col: '#6366f1' },
+    { name: 'OI + PCR (max 25)',     val: ss.oi_pcr || 0,      max: 25, col: '#22c55e' },
+    { name: 'IV (max 10)',           val: ss.iv || 0,           max: 10, col: '#06b6d4' },
+    { name: 'Gift Nifty (±15)',      val: ss.gift_nifty || 0,  max: 15, col: ss.gift_nifty>=0?'#22c55e':'#ef4444' },
+    { name: 'US Market (±8)',        val: ss.us_market || 0,   max:  8, col: ss.us_market >=0?'#22c55e':'#ef4444' },
+    { name: 'Europe (±5)',           val: ss.europe || 0,      max:  5, col: ss.europe    >=0?'#22c55e':'#ef4444' },
+    { name: 'Asia (±2)',             val: ss.asia || 0,         max:  2, col: ss.asia     >=0?'#22c55e':'#ef4444' },
+  ];
+  g('btst-sub-scores').innerHTML = subItems.map(i => {
+    const pct = Math.abs(i.val) / i.max * 100;
+    return `<div class="sig-row">
+      <span class="sig-name">${i.name}</span>
+      <span class="sig-val ${i.val>=0?'pos':'neg'}">${i.val>=0?'+':''}${i.val}</span>
+      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${i.col}"></div></div>
+    </div>`;
+  }).join('');
+
+  // Trade setup
+  const ind = d.indicators || {};
+  g('bt-ltp').textContent  = d.opt_ltp > 0 ? fmtINR(d.opt_ltp) : 'Not found';
+  g('bt-t1').textContent   = d.targets?.t1 ? fmtINR(d.targets.t1) : '—';
+  g('bt-t2').textContent   = d.targets?.t2 ? fmtINR(d.targets.t2) : '—';
+  g('bt-sl').textContent   = d.targets?.sl ? fmtINR(d.targets.sl) : '—';
+  g('bt-lots').textContent = d.num_lots > 0 ? `${d.num_lots} lots` : 'Insufficient';
+  g('bt-pcr').textContent  = fmtNum(ind.pcr, 3);
+  g('bt-ivp').textContent  = (ind.iv_percentile ?? '—') + '/100';
+  g('bt-sup').innerHTML    = ind.support_below ? '<span class="pos">YES ✓</span>' : '<span class="neg">NO ✗</span>';
+
+  g('btst-result').style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  WORLD MARKETS (shared for Global tab)
+// ══════════════════════════════════════════════════════════════════════════════
+let _worldMarketsData = null;
+
+async function loadWorldMarkets() {
+  const el = g('world-markets-list');
+  el.innerHTML = '<div class="skeleton"></div><div class="skeleton" style="width:70%;margin-top:6px"></div><div class="skeleton" style="width:80%;margin-top:6px"></div>';
+  try {
+    const d = await apiFetch('/api/global/markets');
+    _worldMarketsData = d;
+    renderWorldMarkets(d);
+  } catch(e) {
+    el.innerHTML = `<div class="error-box">Failed to load market data: ${e.message}</div>`;
+  }
+}
+
+function renderWorldMarkets(d) {
+  const el = g('world-markets-list');
+  const markets = d.markets || [];
+  if (!markets.length) { el.innerHTML = '<div class="info-box">No market data.</div>'; return; }
+
+  // Update header counters
+  const up   = markets.filter(m => m.direction === 'up').length;
+  const down = markets.filter(m => m.direction === 'down').length;
+  const isBullish = up >= markets.length / 2;
+  if (g('gl-state'))  { g('gl-state').textContent = isBullish ? '🟢 BULLISH' : '🔴 BEARISH'; g('gl-state').className = isBullish ? 'pos' : 'neg'; }
+  if (g('gl-up-ct'))  g('gl-up-ct').textContent  = `${up}↑`;
+  if (g('gl-dn-ct'))  g('gl-dn-ct').textContent  = `${down}↓`;
+
+  // Group by region
+  const byRegion = {};
+  markets.forEach(m => {
+    if (!byRegion[m.region]) byRegion[m.region] = [];
+    byRegion[m.region].push(m);
+  });
+
+  const regionOrder = ['India', 'Americas', 'Europe', 'Asia', 'Australia'];
+  const regionIcons = { India: '🇮🇳', Americas: '🌎', Europe: '🇪🇺', Asia: '🌏', Australia: '🦘' };
+  const maxAbs = Math.max(...markets.map(m => Math.abs(m.change_pct)), 0.01);
+
+  let html = '';
+  regionOrder.forEach(region => {
+    const items = byRegion[region];
+    if (!items) return;
+    html += `<div class="region-title">${regionIcons[region]||''} ${region}</div>`;
+    items.forEach(m => {
+      const isUp   = m.direction === 'up';
+      const isDown = m.direction === 'down';
+      const col    = isUp ? '#22c55e' : isDown ? '#ef4444' : '#9093b0';
+      const pct    = m.change_pct;
+      const barW   = Math.round(Math.abs(pct) / maxAbs * 56);
+      const sign   = pct > 0 ? '+' : '';
+      html += `<div class="mkt-row">
+        <span class="mkt-name">${m.name}</span>
+        <span class="mkt-price">${m.last > 0 ? Number(m.last).toLocaleString('en-IN', {maximumFractionDigits:2}) : '—'}</span>
+        <span class="mkt-chg" style="color:${col}">${sign}${fmtNum(pct,2)}%</span>
+        <span class="mkt-bar"><div class="mkt-mini" style="width:${barW}px;background:${col}"></div></span>
+      </div>`;
+    });
+  });
+  el.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TAB 3 — GLOBAL MACRO ANALYZE (local signal + macro verdict)
+// ══════════════════════════════════════════════════════════════════════════════
+async function runGlobal() {
+  hideErr('global-error');
+  setLoading('btn-global', true);
+  g('global-local-result').style.display = 'none';
+
+  const expiry = sv('gl-expiry');
+  const strike = sv('gl-strike');
+
+  try {
+    const d = await apiFetch('/api/global/analyze', 'POST', {
+      symbol: sv('gl-sym'), expiry: expiry || '', strike: parseFloat(strike) || 0,
+      option_type: sv('gl-type'), capital: fv('gl-cap'),
+    });
+    renderGlobal(d);
+    // Also refresh world market data if we have it
+    if (d.markets && d.markets.length) {
+      _worldMarketsData = { markets: d.markets };
+      renderWorldMarkets({ markets: d.markets });
+    }
+  } catch(e) { showErr('global-error', e.message); }
+  finally { setLoading('btn-global', false); }
+}
+
+function renderGlobal(d) {
+  const local = d.local || {};
+  g('gl-sig').innerHTML    = sigBadge(local.signal || 'HOLD');
+  g('gl-cs').textContent   = fmtNum(local.close_strength, 1) + '%';
+  g('gl-macd').textContent = fmtNum(local.macd_hist, 4);
+  g('gl-close').textContent= fmtINR(local.close);
+
+  const vdict = d.verdict || '';
+  const vCls  = vdict.includes('ALIGNED') || vdict.includes('EXTREME') ? 'pos'
+               : vdict.includes('REJECT')  ? 'neg'
+               : vdict.includes('WARN')    ? 'neu' : 'dim';
+  g('gl-verdict').innerHTML = `<span class="${vCls}">${vdict}</span>`;
+  g('gl-reason').textContent = local.reason || '';
+
+  g('gl-ltp').textContent  = d.opt_ltp > 0 ? fmtINR(d.opt_ltp) : '—';
+  g('gl-t1').textContent   = d.targets?.t1 ? fmtINR(d.targets.t1) : '—';
+  g('gl-t2').textContent   = d.targets?.t2 ? fmtINR(d.targets.t2) : '—';
+  g('gl-sl').textContent   = d.targets?.sl ? fmtINR(d.targets.sl) : '—';
+
+  if (g('gl-state'))  { g('gl-state').textContent = d.global_state === 'BULLISH' ? '🟢 BULLISH' : '🔴 BEARISH'; }
+  if (g('gl-up-ct'))  g('gl-up-ct').textContent  = `${d.up_count}↑`;
+  if (g('gl-dn-ct'))  g('gl-dn-ct').textContent  = `${d.down_count}↓`;
+
+  g('global-local-result').style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TAB 4 — MAX-PAIN MONITOR
+// ══════════════════════════════════════════════════════════════════════════════
+async function runMonitor() {
+  hideErr('monitor-error');
+  setLoading('btn-monitor', true);
+  g('monitor-result').style.display = 'none';
+
+  const expiry = sv('mn-expiry');
+  if (!expiry) { showErr('monitor-error', 'Select an expiry date.'); setLoading('btn-monitor', false); return; }
+
+  try {
+    const d = await apiFetch('/api/monitor/snapshot', 'POST', {
+      symbol: sv('mn-sym'), expiry,
+    });
+    renderMonitor(d);
+  } catch(e) { showErr('monitor-error', e.message); }
+  finally { setLoading('btn-monitor', false); }
+}
+
+function renderMonitor(d) {
+  g('mn-maxpain').textContent = d.max_pain > 0 ? '₹' + Number(d.max_pain).toLocaleString('en-IN') : '—';
+  g('mn-dte').innerHTML       = `<span class="${d.dte <= 2 ? 'neg' : d.dte <= 5 ? 'neu' : 'pos'}">${d.dte} days</span>`;
+  g('mn-pcr').innerHTML       = `<span class="${d.pcr >= 1 ? 'pos' : 'neg'}">${fmtNum(d.pcr,3)}</span>`;
+  g('mn-theta').innerHTML     = d.theta_defense
+    ? '<span class="badge badge-warn">⚠ ACTIVE</span>'
+    : '<span class="badge badge-buy">Normal</span>';
+  g('mn-coi').textContent = fmtK(d.total_call_oi);
+  g('mn-poi').textContent = fmtK(d.total_put_oi);
+
+  const warn = g('mn-theta-warn');
+  if (d.theta_defense) {
+    warn.textContent = '🛡 Theta Defense Active: ' + d.theta_message;
+    warn.style.display = 'block';
+  } else { warn.style.display = 'none'; }
+
+  // OI Chart
+  const chart = g('oi-chart');
+  const rows = d.oi_table || [];
+  if (!rows.length) { chart.innerHTML = '<p class="dim" style="padding:16px">No OI data.</p>'; }
+  else {
+    const maxOI = Math.max(...rows.map(r => Math.max(r.call_oi, r.put_oi)), 1);
+    chart.innerHTML = rows.map(r => {
+      const cW = Math.round(r.call_oi / maxOI * 120);
+      const pW = Math.round(r.put_oi  / maxOI * 120);
+      const cls = r.is_max_pain ? 'oi-row oi-max-pain' : 'oi-row';
+      return `<div class="${cls}">
+        <span class="oi-call-bar-wrap"><div class="oi-call-bar" style="width:${cW}px" title="Call OI: ${fmtK(r.call_oi)}"></div></span>
+        <span class="oi-strike">${Number(r.strike).toLocaleString('en-IN')}${r.is_max_pain?' 🎯':''}</span>
+        <span class="oi-put-bar-wrap"><div class="oi-put-bar" style="width:${pW}px" title="Put OI: ${fmtK(r.put_oi)}"></div></span>
+      </div>`;
+    }).join('');
+  }
+
+  g('monitor-result').style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TAB 5 — RISK ENGINE SIMULATOR
+// ══════════════════════════════════════════════════════════════════════════════
+async function runRisk() {
+  hideErr('risk-error');
+  setLoading('btn-risk', true);
+  g('risk-result').style.display = 'none';
+
+  try {
+    const d = await apiFetch('/api/risk/simulate', 'POST', {
+      capital: fv('re-cap'), premium: fv('re-prem'), option_type: sv('re-type'),
+      spot: fv('re-spot'), vwap: fv('re-vwap'),
+      intraday_move_pct: fv('re-im'),
+      max_trades_per_day: iv('re-maxtr'), daily_loss_limit: fv('re-dll'),
+      risk_per_trade_pct: fv('re-rpt'), sl_pct: fv('re-sl'),
+      cooldown_minutes: iv('re-cool'), max_consecutive_losses: iv('re-mcl'),
+      max_intraday_move_pct: fv('re-mim'),
+      trades_today: iv('re-tt'), consecutive_losses: iv('re-cl'),
+      daily_pnl: fv('re-dpnl'), minutes_since_last_trade: fv('re-mlt'),
+    });
+    renderRisk(d);
+  } catch(e) { showErr('risk-error', e.message); }
+  finally { setLoading('btn-risk', false); }
+}
+
+function renderRisk(d) {
+  const checks = [
+    { label: 'Risk Engine', ok: d.can_trade, reason: d.can_trade_reason },
+    { label: 'Entry Signal Validation', ok: d.entry_valid, reason: d.entry_reason },
+    { label: 'Time Filter (< 2:30 PM)',  ok: d.time_ok,    reason: d.time_ok ? 'Trading hours active' : 'After 2:30 PM cutoff' },
+    { label: 'Overall GO',               ok: d.overall_go, reason: d.overall_go ? 'ALL checks passed' : 'One or more checks failed' },
+  ];
+  g('risk-checks').innerHTML = checks.map(c => `
+    <div class="check-row ${c.ok ? 'check-ok' : 'check-bad'}">
+      <div class="check-icon">${c.ok ? '✓' : '✗'}</div>
+      <div>
+        <div style="font-weight:600;font-size:12px">${c.label}</div>
+        <div style="font-size:11px;opacity:.75;margin-top:2px">${c.reason}</div>
+      </div>
+    </div>`).join('');
+
+  const pos = d.position || {};
+  const biasCls = d.bias === 'BULLISH' ? 'pos' : d.bias === 'BEARISH' ? 'neg' : 'dim';
+  g('re-qty').textContent   = pos.qty || 0;
+  g('re-risk').textContent  = fmtINR(pos.risk_amt);
+  g('re-entry').textContent = fmtINR(pos.entry);
+  g('re-tgt').textContent   = fmtINR(pos.target);
+  g('re-stpl').textContent  = fmtINR(pos.stop_loss);
+  g('re-bias').innerHTML    = `<span class="${biasCls}">${d.bias}</span>`;
+
+  g('risk-result').style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TAB 6 — API USAGE
+// ══════════════════════════════════════════════════════════════════════════════
+async function loadUsage() {
+  try {
+    const d = await apiFetch('/api/usage');
+    g('us-used').textContent = d.daily_calls;
+    g('us-rem').textContent  = d.remaining;
+    g('us-max').textContent  = d.max_per_day;
+    g('us-pct').textContent  = d.pct_used + '% used';
+    g('us-ts').textContent   = d.last_updated ? new Date(d.last_updated * 1000).toLocaleTimeString('en-IN') : '—';
+
+    const bar = g('us-bar');
+    bar.style.width = d.pct_used + '%';
+    bar.classList.toggle('warn', d.pct_used >= 80);
+    g('us-warn').style.display = d.pct_used >= 80 ? 'block' : 'none';
+    g('hdr-usage').textContent = `${d.daily_calls}/${d.max_per_day} calls`;
+  } catch { g('hdr-usage').textContent = '—'; }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  // Load all expiry selects in parallel
+  v3LoadExpiries();
+  btLoadExpiries();
+  glLoadExpiries();
+  mnLoadExpiries();
+  loadWorldMarkets();
+  loadUsage();
+  // Refresh usage every 60s
+  setInterval(loadUsage, 60000);
+  // Refresh world markets every 5min
+  setInterval(loadWorldMarkets, 300000);
+});
+</script>
+</body>
+</html>

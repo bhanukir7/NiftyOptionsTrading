@@ -24,6 +24,8 @@ from nifty_options_trading.options_engine import get_option_chain, get_dynamic_l
 
 load_dotenv(os.path.join(parent_dir, '.env'))
 
+from nifty_options_trading.global_cues import fetch_world_markets, derive_btst_cues
+
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 SESSION_TOKEN = os.getenv("SESSION_TOKEN")
@@ -194,23 +196,13 @@ def estimate_iv(df: pd.DataFrame) -> dict:
         print(f"Error estimating IV: {e}")
         return {"iv_percentile": 50}
 
-def get_global_cues() -> dict:
-    print("\n--- GLOBAL CUES INPUT ---")
-    print("Enter UP, DOWN, or FLAT for each.")
-    try:
-        gift_nifty = input("Gift Nifty: ").strip().upper()
-        us_market = input("US Market: ").strip().upper()
-        asia_market = input("Asia Market: ").strip().upper()
-    except EOFError:
-        gift_nifty, us_market, asia_market = "FLAT", "FLAT", "FLAT"
-    except Exception:
-        gift_nifty, us_market, asia_market = "FLAT", "FLAT", "FLAT"
-    
-    return {
-        "gift_nifty": gift_nifty if gift_nifty in ["UP", "DOWN", "FLAT"] else "FLAT",
-        "us_market": us_market if us_market in ["UP", "DOWN", "FLAT"] else "FLAT",
-        "asia_market": asia_market if asia_market in ["UP", "DOWN", "FLAT"] else "FLAT"
-    }
+def get_automated_global_cues() -> dict:
+    """Fetch live world markets and derive cues for BTST."""
+    print("Fetching live world market data (yfinance)...")
+    world = fetch_world_markets()
+    markets = world.get("markets", [])
+    cue_data = derive_btst_cues(markets)
+    return cue_data
 
 def compute_btst_score(signal_data: dict, oi_data: dict, iv_data: dict, global_data: dict) -> int:
     score = 0
@@ -222,7 +214,7 @@ def compute_btst_score(signal_data: dict, oi_data: dict, iv_data: dict, global_d
         score += 10
         
     cs = signal_data.get("close_strength", 50)
-    cs_points = int((cs / 100.0) * 20)
+    cs_points = int((cs / 100.0) * 15)
     score += cs_points
     
     # B. OI + PCR (25 points)
@@ -244,47 +236,53 @@ def compute_btst_score(signal_data: dict, oi_data: dict, iv_data: dict, global_d
     if gn == "UP":
         score += 15
     elif gn == "DOWN":
-        score -= 15
+        score -= 10
         
     us = global_data.get("us_market", "FLAT")
     if us == "UP":
-        score += 10
+        score += 8
     elif us == "DOWN":
-        score -= 10
-        
+        score -= 5
+
+    euro = global_data.get("europe_market", "FLAT")
+    if euro == "UP":
+        score += 5
+    elif euro == "DOWN":
+        score -= 3
+
     asia = global_data.get("asia_market", "FLAT")
     if asia == "UP":
-        score += 5
+        score += 2
     elif asia == "DOWN":
-        score -= 5
+        score -= 2
         
     return min(max(score, 0), 100)
 
 def generate_score_verdict(score: int) -> str:
     if score >= 75:
-        return "🟩 HIGH PROBABILITY (not guaranteed)"
+        return "HIGH PROBABILITY (not guaranteed)"
     elif 60 <= score < 75:
-        return "🟨 MODERATE EDGE"
+        return "MODERATE EDGE"
     elif 45 <= score < 60:
-        return "🟧 LOW EDGE"
+        return "LOW EDGE"
     else:
-        return "🛑 NO TRADE"
+        return "NO TRADE"
 
 def print_report(parsed: dict, opt_ltp: float, num_lots: int, lot_size: int, capital_req: float, 
                  signal_data: dict, oi_data: dict, iv_data: dict, global_data: dict, score: int):
     print("\n" + "="*75)
-    print(f" 📊 BTST PROBABILISTIC EVALUATOR: {parsed['stock_code']} {parsed['expiry_date']} {parsed['strike']} {parsed['opt_type']}")
+    print(f" BTST PROBABILISTIC EVALUATOR: {parsed['stock_code']} {parsed['expiry_date']} {parsed['strike']} {parsed['opt_type']}")
     print(f"    (Focus: Price Action, Options Data, Global Cues)")
     print("="*75)
     
     if opt_ltp > 0:
-        print(f"💸 Live Premium        : ₹{opt_ltp}")
+        print(f"Live Premium        : Rs.{opt_ltp}")
         available = float(os.getenv("AVAILABLE_FUNDS", "50000"))
         
         if num_lots > 0:
-            print(f"📦 Affordability        : {num_lots} Lots [{num_lots * lot_size} Qty] using ₹{available} budget")
+            print(f"Affordability        : {num_lots} Lots [{num_lots * lot_size} Qty] using Rs.{available} budget")
         else:
-            print(f"⚠️ Warning              : Budget insufficient. 1 lot costs ₹{round(opt_ltp * lot_size, 2)}")
+            print(f"Warning              : Budget insufficient. 1 lot costs Rs.{round(opt_ltp * lot_size, 2)}")
             
         print("-" * 75)
         # Wider targets for BTST given opening volatility
@@ -292,27 +290,27 @@ def print_report(parsed: dict, opt_ltp: float, num_lots: int, lot_size: int, cap
         target2 = opt_ltp * 1.30
         sl = opt_ltp * 0.90
         
-        print(f"🚀 BTST OPENING TARGETS (High Volatility Setup):")
-        print(f"   Target 1 (+15%) : [~₹{round(target1, 2)}] (Take early profit on gap)")
-        print(f"   Target 2 (+30%) : [~₹{round(target2, 2)}] (Hold runner)")
-        print(f"   Stop-Loss (-10%): [~₹{round(sl, 2)}] (Strict stop if gap fails)")
+        print(f"BTST OPENING TARGETS (High Volatility Setup):")
+        print(f"   Target 1 (+15%) : [~Rs.{round(target1, 2)}] (Take early profit on gap)")
+        print(f"   Target 2 (+30%) : [~Rs.{round(target2, 2)}] (Hold runner)")
+        print(f"   Stop-Loss (-10%): [~Rs.{round(sl, 2)}] (Strict stop if gap fails)")
     else:
-        print("⚠️ Live Premium       : Contract NOT FOUND in current active chain.")
+        print("Live Premium       : Contract NOT FOUND in current active chain.")
         
     print("-" * 75)
-    print(f"📡 PROBABILISTIC INSIGHTS:")
+    print(f"PROBABILISTIC INSIGHTS:")
     print(f"   BTST Score    : {score}/100")
     print(f"   PCR           : {oi_data.get('pcr', 1.0)}")
     print(f"   Support Below : {'YES' if oi_data.get('support_below', False) else 'NO'}")
     print(f"   IV Percentile : {iv_data.get('iv_percentile', 50)}/100")
     
-    print(f"   Global Cues   : Gift Nifty={global_data.get('gift_nifty', 'FLAT')} | US={global_data.get('us_market', 'FLAT')} | Asia={global_data.get('asia_market', 'FLAT')}")
+    print(f"   Global Cues   : Gift Nifty={global_data.get('gift_nifty', 'FLAT')} | US={global_data.get('us_market', 'FLAT')} | Europe={global_data.get('europe_market', 'FLAT')} | Asia={global_data.get('asia_market', 'FLAT')}")
     
-    print("="*75)
+    print("-" * 75)
     final_decision = generate_score_verdict(score)
-    print(f"🎯 BTST VERDICT: [{score}/100] {final_decision}")
+    print(f"BTST VERDICT: [{score}/100] {final_decision}")
     
-    print("\n   ⚠️ DISCLAMERS:")
+    print("\n   DISCLAIMERS:")
     print("   - BTST is probability-based, not guaranteed.")
     print("   - Option premium may decay due to IV changes overnight.")
     print("="*75 + "\n")
@@ -359,8 +357,8 @@ def main():
     # 4. Estimate IV
     iv_data = estimate_iv(spot_df)
     
-    # 5. Get Global Cues
-    global_data = get_global_cues()
+    # 5. Get Automated Global Cues
+    global_data = get_automated_global_cues()
     
     # 6. Compute BTST Score
     score = compute_btst_score(signal_data, oi_data, iv_data, global_data)

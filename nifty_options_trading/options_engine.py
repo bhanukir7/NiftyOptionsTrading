@@ -87,6 +87,16 @@ class SecurityMasterCache:
         zip_path = os.path.join(log_dir, "SecurityMaster.zip")
         
         if not os.path.exists(txt_path):
+            # Cleanup old master files before downloading new one
+            import glob
+            old_masters = glob.glob(os.path.join(log_dir, "FONSEScripMaster_*.txt"))
+            for old_file in old_masters:
+                try:
+                    print(f"  [-] Cleaning up old master file: {os.path.basename(old_file)}")
+                    os.remove(old_file)
+                except:
+                    pass
+
             print(f"Downloading ICICI SecurityMaster for {today_date_str} to extract live Lot Sizes...")
             try:
                 urllib.request.urlretrieve("https://directlink.icicidirect.com/NewSecurityMaster/SecurityMaster.zip", zip_path)
@@ -94,24 +104,128 @@ class SecurityMasterCache:
                     z.extract("FONSEScripMaster.txt", log_dir)
                 os.rename(os.path.join(log_dir, "FONSEScripMaster.txt"), txt_path)
                 if os.path.exists(zip_path):
-                    os.remove(zip_path) # cleanup
+                    os.remove(zip_path)  # cleanup
             except Exception as e:
                 print(f"Failed to download Security Master: {e}")
-                return 1 # Fallback on error
-                
-        # Load CSV into memory
+                return 1  # Fallback on error
+
+        # Load CSV into memory — include all columns useful for trading
         if os.path.exists(txt_path):
             try:
-                cls._master_df = pd.read_csv(txt_path, usecols=['ShortName', 'LotSize'])
+                cls._master_df = pd.read_csv(
+                    txt_path,
+                    usecols=[
+                        'Token', 'InstrumentName', 'ShortName',
+                        'ExpiryDate', 'StrikePrice', 'OptionType',
+                        'LotSize', 'TickSize',
+                        'LowPriceRange', 'HighPriceRange',
+                    ],
+                    dtype=str,
+                )
+                # Normalise numeric columns
+                cls._master_df['LotSize']     = pd.to_numeric(cls._master_df['LotSize'],     errors='coerce').fillna(1).astype(int)
+                cls._master_df['StrikePrice'] = pd.to_numeric(cls._master_df['StrikePrice'], errors='coerce').fillna(0)
+                cls._master_df['TickSize']    = pd.to_numeric(cls._master_df['TickSize'],    errors='coerce').fillna(0.05)
+                # Parse ExpiryDate → datetime (format "28-Apr-2026")
+                cls._master_df['ExpiryDate']  = pd.to_datetime(
+                    cls._master_df['ExpiryDate'], format='%d-%b-%Y', errors='coerce'
+                )
                 cls._last_date = today_date_str
                 row = cls._master_df[cls._master_df['ShortName'] == stock_code]
                 if not row.empty:
                     return int(row.iloc[0]['LotSize'])
             except Exception as e:
                 print(f"Failed to parse Security Master: {e}")
-                
+
         return 1
+
+    @classmethod
+    def _ensure_loaded(cls):
+        """Load today's master if not already in memory."""
+        cls.get_lot_size("_WARMUP_")  # triggers the load path
+
+    @classmethod
+    def get_token(cls, stock_code: str, strike: float, option_type: str, expiry_date) -> str | None:
+        """
+        Look up the Breeze instrument Token for a specific option contract.
+        expiry_date can be a datetime.date or datetime.datetime object.
+        Returns the token string, or None if not found.
+        """
+        cls._ensure_loaded()
+        if cls._master_df is None:
+            return None
+        import datetime as _dt
+        if isinstance(expiry_date, (_dt.date,)):
+            expiry_dt = pd.Timestamp(expiry_date)
+        else:
+            expiry_dt = pd.Timestamp(expiry_date)
+        df = cls._master_df
+        # Match: short name, option type (CE/PE → Call/Put mapping in file is CE/PE directly)
+        mask = (
+            (df['ShortName'] == stock_code.upper()) &
+            (df['OptionType'].str.upper() == option_type.upper()) &
+            (df['StrikePrice'] == float(strike)) &
+            (df['ExpiryDate'] == expiry_dt)
+        )
+        rows = df[mask]
+        if not rows.empty:
+            return rows.iloc[0]['Token']
+        return None
+
+    @classmethod
+    def get_expiries(cls, stock_code: str, option_type: str = 'CE') -> list:
+        """
+        Return sorted list of available expiry dates (as date objects) for a symbol.
+        """
+        cls._ensure_loaded()
+        if cls._master_df is None:
+            return []
+        df = cls._master_df
+        mask = (
+            (df['ShortName'] == stock_code.upper()) &
+            (df['OptionType'].str.upper() == option_type.upper())
+        )
+        expiries = df[mask]['ExpiryDate'].dropna().drop_duplicates().sort_values()
+        return [d.date() for d in expiries]
+
+    @classmethod
+    def get_strikes(cls, stock_code: str, expiry_date, option_type: str = 'CE') -> list:
+        """
+        Return sorted list of available strikes for a symbol + expiry from the local file.
+        """
+        cls._ensure_loaded()
+        if cls._master_df is None:
+            return []
+        import datetime as _dt
+        expiry_dt = pd.Timestamp(expiry_date)
+        df = cls._master_df
+        mask = (
+            (df['ShortName'] == stock_code.upper()) &
+            (df['OptionType'].str.upper() == option_type.upper()) &
+            (df['ExpiryDate'] == expiry_dt)
+        )
+        return sorted(df[mask]['StrikePrice'].dropna().unique().tolist())
+
+    @classmethod
+    def get_tick_size(cls, stock_code: str) -> float:
+        """Return the tick size for a symbol (default 0.05)."""
+        cls._ensure_loaded()
+        if cls._master_df is None:
+            return 0.05
+        row = cls._master_df[cls._master_df['ShortName'] == stock_code.upper()]
+        if not row.empty:
+            return float(row.iloc[0]['TickSize'])
+        return 0.05
+
 
 def get_dynamic_lot_size(stock_code: str) -> int:
     """Public wrapper to fetch lot size transparently."""
     return SecurityMasterCache.get_lot_size(stock_code)
+
+def get_expiries(stock_code: str, option_type: str = 'CE') -> list:
+    """Public wrapper to list available expiry dates from the Security Master."""
+    return SecurityMasterCache.get_expiries(stock_code, option_type)
+
+def get_strikes(stock_code: str, expiry_date, option_type: str = 'CE') -> list:
+    """Public wrapper to list available strikes from the Security Master."""
+    return SecurityMasterCache.get_strikes(stock_code, expiry_date, option_type)

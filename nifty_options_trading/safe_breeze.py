@@ -47,8 +47,8 @@ class SafeBreeze:
         
         cache_key = f"hist_{code}_{interval}_{to_date}"
         
-        # TTL Rules from specs
-        ttl = 86400 if interval == "1day" else 60
+        # TTL Rules from specs: 1 hour for daily data (to catch intraday updates), 1 min for shorter
+        ttl = 3600 if interval == "1day" else 60
         
         cached = self.cache_manager.get(cache_key)
         if cached is not None:

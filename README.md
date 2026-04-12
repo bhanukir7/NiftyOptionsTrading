@@ -1,6 +1,31 @@
 # nifty_options_trading 🚀
 **Release Version 1.0** — *April 12, 2026, 02:29 AM IST*
 
+**Release Version 2.0** — *April 12, 2026, 06:49 AM IST* (Premium Dashboard Edition)
+
+---
+
+## ⚡ Version 2.0: The Premium Dashboard
+
+The suite has graduated from CLI-only execution to a unified, interactive **FastAPI Dashboard**. This version focuses on stability, modularity, and a modern web interface.
+
+### Key 2.0 Features:
+*   **Unified UI Dashboard**: (via `app.py`) Access every evaluator (V3, BTST, Global) through a single, stunning HSL-themed web interface.
+*   **Universal Launcher**: (via `run.py`) One command to start the entire environment with automatic PYTHONPATH management and optimized file watching for Windows.
+*   **Interactive Risk Simulator**: A live rule-engine visualizer that allows you to simulate entry conditions, potential slippage, and capital exposure.
+*   **Robust Session Isolation**: Relocated API persistence to the `logs/` root directory, preventing recursive reloads and stabilizing developer sessions.
+*   **Modular Architecture**: Clean separation between the core "Evaluation Engines" and the "Web Service Layer".
+*   **4-Region Global Cues**: Automated sentiment tracking for **Gift Nifty**, **US (S&P/Nasdaq)**, **Europe (DAX/FTSE)**, and **Asia (Nikkei/HangSeng)** via `yfinance`.
+*   **Auto-Maintenance**: Automatically creates `/logs` directory and performs daily cleanup of legacy 25MB+ ScripMaster files for disk hygiene.
+
+### Running the V2 Suite:
+Always use `run.py` to handle the environment correctly:
+- **Dashboard**: `python run.py dash` (Open http://127.0.0.1:8001)
+- **BTST CLI**: `python run.py btst "NIFTY 16 Apr 23900 CE"`
+- **Global Monitor**: `python run.py global`
+
+---
+
 An advanced, automated algorithmic options trading, evaluation, and monitoring suite built natively for Indian Equities and Indices using the **ICICIdirect Breeze API**.
 
 This repository documents the chronological evolution of a professional-grade options evaluation engine—growing from a basic intraday strike pricer to a highly sophisticated multi-timeframe Global Macro Confluence Algorithm.
@@ -139,13 +164,18 @@ A detailed index of exactly what every Python file does within the `nifty_option
 - `expiry_calc.py` : **Time Series Mapper**. Ensures scripts exclusively pull exactly standard valid NSE expiration boundaries.
 
 ### Network & API Infrastructure
+- `run.py` : **Universal Startup Launcher**. Handles environment bootstrapping, PYTHONPATH resolution, and optimized Uvicorn reload parameters for Windows.
 - `safe_breeze.py` : **API Core Wrapper**. Redirects logic to local cache blocks or gracefully queues requests under active ICICIdirect limits.
-- `api_rate_limiter.py` : **Persistent Quota Queue**. Algorithmic rate restrictor mapping usage dynamically across runs (via `api_usage.json`) enforcing an active 90% hard-shutdown threshold on daily call volumes.
-- `cache_manager.py` : **TTL Memory Cache**. Eliminates redundant polling by statically saving Option Chains (180s) and Historical ticks (60s) in local system RAM.
+- `api_rate_limiter.py` : **Persistent Quota Queue**. Algorithmic rate restrictor mapping usage dynamically across runs (via `logs/api_usage.json`).
+- `cache_manager.py` : **TTL Memory Cache**. Eliminates redundant polling by statically saving data in local system RAM.
 - `market_stream.py` : **WebSocket Integrator**. Circumvents REST API bottlenecks entirely by subscribing to a standard native price stream.
 
+### Web & UI Layer
+- `app.py` : **FastAPI Master Server**. The central brain of the Version 2.0 suite. Exposes all analytical modules via a RESTful API.
+- `nifty_trading_dashboard.html` : **The Command Center**. A high-performance, responsive UI featuring live world markets, risk simulation, and multi-strike analysis.
+
 ### Execution & Alert Framework
-- `main.py` : **Controlled Multi-Task Daemon**. The primary scheduled state machine daemon. Batch processes historical indicator refreshes exclusively every 60s, pulling live entry prices via WebSockets, and natively managing active trading payloads flawlessly.
+- `main.py` : **Controlled Multi-Task Daemon**. The primary scheduled state machine daemon. Batch processes historical indicator refreshes exclusively every 60s.
 - `strategy.py` : **Primitive Signal Generator**. Generates the base conditional evaluations for the telegram daemon.
 - `alerts.py` : **Telegram Webhooks**. Outbound messaging pipeline to post results live to external Chat IDs.
 - `tmp_methods.py` : **Development Sandbox**. Scratchpad files used during primary architecture debugging.
