@@ -16,9 +16,11 @@ class Config:
     daily_loss_limit: float = -5000.0
     risk_per_trade_pct: float = 0.02
     sl_pct: float = 0.25
-    partial_profit_pct: float = 0.5
     cooldown_minutes: int = 20
     max_intraday_move_pct: float = 2.5
+    # New V2.0 Strategy Controls
+    enable_maxpain_strategy: bool = True
+    paper_trade: bool = True  # Toggle for live order placement
 
 # --- G. Trade Execution Model (Position class) ---
 @dataclass

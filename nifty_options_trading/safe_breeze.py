@@ -67,7 +67,7 @@ class SafeBreeze:
         right = kwargs.get('right', '')
         
         cache_key = f"opt_{code}_{exp}_{right}"
-        ttl = 180 # 3 minutes strictly for Option Chain 
+        ttl = 15 # 15 seconds refresh for high-frequency strategy analysis
         
         cached = self.cache_manager.get(cache_key)
         if cached is not None:

@@ -2,6 +2,21 @@
 **Release Version 1.0** — *April 12, 2026, 02:29 AM IST*
 
 **Release Version 2.0** — *April 12, 2026, 06:49 AM IST* (Premium Dashboard Edition)
+**Release Version 3.0** — *April 12, 2026, 08:02 AM IST* (The Autonomous Command Center)
+
+---
+
+## 🤖 Version 3.0: The Autonomous Command Center
+
+The suite has evolved into a fully autonomous trading ecosystem. The background daemon has been unified into the dashboard, providing a "Zero-Click" monitoring and execution experience.
+
+### Key 3.0 Features:
+*   **Unified Autonomous Engine**: (via `trading_engine.py`) The background scanner from `main.py` is now a hosted service within the dashboard. Start or stop the engine directly from the UI.
+*   **Max Pain OI Strategy**: A buyer-side mean-reversion engine that identifies institutional OI walls (Support/Resistance) and targets Max Pain for high-precision exits.
+*   **Live Log Telemetry**: Stream the engine's internal "decision logs" in real-time to the browser without refreshing or checking terminal output.
+*   **Paper Trade Toggle**: Integrated safety mode allowing you to run the full autonomous engine for signal verification without risking capital.
+*   **High-Frequency OI Scanning**: Aggressive 15-second caching window for option chains, enabling sub-minute reaction to fresh OI concentration changes.
+*   **Performance Monitoring**: Real-time tracking of "Trades Today" and "Daily P&L" directly on the central engine dashboard.
 
 ---
 

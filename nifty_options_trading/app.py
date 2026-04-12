@@ -76,6 +76,7 @@ from nifty_options_trading.rule_engine import (
 from nifty_options_trading.global_cues import (
     fetch_world_markets, derive_btst_cues
 )
+from nifty_options_trading.trading_engine import AutonomousEngine
 
 # ── Read env once ─────────────────────────────────────────────────────────────
 API_KEY       = os.getenv("API_KEY", "")
@@ -88,6 +89,7 @@ app = FastAPI(title="Nifty Options Trading Suite", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 _executor = ThreadPoolExecutor(max_workers=4)
+_engine: Optional[AutonomousEngine] = None
 
 # ── HTML Dashboard ────────────────────────────────────────────────────────────
 DASHBOARD_PATH = current_dir / "nifty_trading_dashboard.html"
@@ -97,11 +99,24 @@ async def index():
     return DASHBOARD_PATH.read_text(encoding="utf-8")
 
 
-# ── Pre-warm Security Master on startup ───────────────────────────────────────
+# ── Lifecycle ─────────────────────────────────────────────────────────────────
 @app.on_event("startup")
-async def warmup():
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(_executor, lambda: get_expiries("NIFTY", "CE"))
+async def startup_event():
+    global _engine
+    try:
+        breeze = SafeBreeze(api_key=API_KEY)
+        breeze.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
+        _engine = AutonomousEngine(breeze)
+        # Pre-warm Security Master
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_executor, lambda: get_expiries("NIFTY", "CE"))
+    except Exception as e:
+        print(f"FAILED TO START ENGINE: {e}")
+
+@app.on_event("shutdown")
+def shutdown_event():
+    if _engine:
+        _engine.stop()
 
 
 # ── Helper: get authenticated Breeze instance ─────────────────────────────────
@@ -549,6 +564,28 @@ def _run_monitor(req: MonitorRequest) -> dict:
     total_put_oi  = float(chain_df[chain_df["right"].str.upper().isin(["PUT",  "PE"])]["open_interest"].sum())
     pcr = round(total_put_oi / total_call_oi, 3) if total_call_oi > 0 else 1.0
 
+    # AI Strategy Analysis
+    from nifty_options_trading.maxpain_strategy import MaxPainStrategy
+    strat = MaxPainStrategy()
+    oi_data_for_strat = [
+        {
+            "strike": float(row["strike"]),
+            "call_oi": float(row["call_oi"]),
+            "put_oi": float(row["put_oi"]),
+            "call_oi_change": 0, # Note: simplified for one-shot snapshot
+            "put_oi_change": 0
+        }
+        for _, row in merged.iterrows()
+    ]
+    # We use a neutral bias for the one-shot monitor unless we track it
+    ai_strategy = strat.generate_signal(
+        spot_price=float(chain_df.iloc[0]["ltp"] if "ltp" in chain_df.columns else 0),
+        oi_chain=oi_data_for_strat,
+        max_pain=float(max_pain),
+        global_bias="NONE",
+        dte=dte
+    )
+
     breeze.log_api_usage()
     return {
         "symbol":         stock_code,
@@ -560,6 +597,7 @@ def _run_monitor(req: MonitorRequest) -> dict:
         "pcr":            float(pcr),
         "total_call_oi":  float(total_call_oi),
         "total_put_oi":   float(total_put_oi),
+        "ai_strategy":    ai_strategy,
         "oi_table": [
             {
                 "strike":   float(row["strike"]),
@@ -684,3 +722,40 @@ async def api_usage():
         except Exception:
             pass
     return JSONResponse({"daily_calls": 0, "max_per_day": MAX_DAILY_CALLS, "remaining": MAX_DAILY_CALLS, "pct_used": 0.0})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Autonomous Engine Control Panel
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/engine/toggle")
+async def engine_toggle():
+    if not _engine:
+        raise HTTPException(status_code=500, detail="Engine not initialized")
+    
+    if _engine._is_running:
+        _engine.stop()
+        return {"status": "stopped", "message": "Engine stopped successfully."}
+    else:
+        _engine.start()
+        return {"status": "running", "message": "Engine started successfully."}
+
+@app.get("/api/engine/status")
+async def engine_status():
+    if not _engine:
+        return {"is_running": False, "status": "Not Initialized"}
+    
+    return {
+        "is_running": _engine._is_running,
+        "trades_today": _engine.state.trades_today,
+        "daily_pnl": round(_engine.state.daily_pnl, 2),
+        "current_bias": _engine.state.current_bias,
+        "active_pos": _engine.state.active_position is not None,
+        "last_signal": _engine.last_signal
+    }
+
+@app.get("/api/engine/logs")
+async def engine_logs():
+    if not _engine:
+        return {"logs": ["Engine not initialized"]}
+    return {"logs": list(_engine.logs)}

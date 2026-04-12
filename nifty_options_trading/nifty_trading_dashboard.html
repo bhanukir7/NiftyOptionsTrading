@@ -303,6 +303,7 @@
   <button class="tab-btn"        id="tab-btst"   onclick="switchTab('btst')"   role="tab">📅 BTST Evaluator</button>
   <button class="tab-btn"        id="tab-global" onclick="switchTab('global')" role="tab">🌍 Global Macro</button>
   <button class="tab-btn"        id="tab-monitor"onclick="switchTab('monitor')"role="tab">🔭 Max-Pain Monitor</button>
+  <button class="tab-btn"        id="tab-engine" onclick="switchTab('engine')" role="tab">🤖 Autonomous Engine</button>
   <button class="tab-btn"        id="tab-risk"   onclick="switchTab('risk')"   role="tab">⚙️ Risk Engine</button>
   <button class="tab-btn"        id="tab-usage"  onclick="switchTab('usage')"  role="tab">📈 API Usage</button>
 </div>
@@ -525,9 +526,18 @@
       <div class="metric"><div class="metric-label">Total Put OI</div><div id="mn-poi" class="metric-value pos"></div></div>
     </div>
     <div id="mn-theta-warn" class="warn-box" style="display:none"></div>
-    <div class="card" style="margin-top:12px">
-      <div class="card-title">Open Interest Profile (Call 🔴 / Put 🟢 | 🟡 Max Pain)</div>
-      <div id="oi-chart"></div>
+    
+    <div class="grid g2" style="margin-top:12px">
+      <div class="card">
+        <div class="card-title">AI Mean-Reversion Strategy (Max Pain based)</div>
+        <div id="mn-ai-strategy" class="info-box" style="margin-top:0; min-height:120px">
+          <p style="text-align:center; padding-top:40px; color:var(--text3)">Fetch snapshot to analyze strategy...</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Open Interest Profile (Call 🔴 / Put 🟢 | 🟡 Max Pain)</div>
+        <div id="oi-chart"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -594,7 +604,46 @@
 </div>
 
 <!-- ════════════════════════════════════════════════════════════════════════
-     TAB 6 — API USAGE
+     TAB 6 — AUTONOMOUS ENGINE
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="panel-engine" class="panel">
+  <div class="grid g3" style="margin-bottom:12px">
+    <div class="card">
+      <div class="card-title">Engine Control</div>
+      <div style="display:flex; flex-direction:column; gap:10px">
+        <div id="engine-status-badge" class="badge badge-hold" style="text-align:center; width:100%">STAT: IDLE</div>
+        <button class="btn" id="btn-engine-toggle" onclick="toggleEngine()" style="margin-top:0">Start Autonomous Engine 🚀</button>
+        <div style="font-size:10px; color:var(--text3); text-align:center">
+          Mode: <span style="color:var(--orange-txt)">PAPER TRADE ACTIVE</span>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Performance Today</div>
+      <div class="grid g2">
+        <div class="metric"><div class="metric-label">Trades</div><div id="eng-trades" class="metric-value">0</div></div>
+        <div class="metric"><div class="metric-label">Daily PnL</div><div id="eng-pnl" class="metric-value">₹0</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Live Sentiment</div>
+      <div class="grid g2">
+        <div class="metric"><div class="metric-label">Market Bias</div><div id="eng-bias" class="metric-value">NONE</div></div>
+        <div class="metric"><div class="metric-label">Active trade</div><div id="eng-active" class="metric-value">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Engine Activity Logs (Live Feed)</div>
+    <div id="engine-logs" style="height:350px; overflow-y:auto; background:var(--bg3); border-radius:var(--radius-sm); padding:12px; font-family:'JetBrains Mono', monospace; font-size:11px; line-height:1.6; color:var(--text2); display:flex; flex-direction:column-reverse">
+      <div style="color:var(--text3)">Waiting for engine to start...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     TAB 7 — API USAGE
 ════════════════════════════════════════════════════════════════════════════ -->
 <div id="panel-usage" class="panel">
   <div class="card" style="max-width:600px">
@@ -1052,6 +1101,26 @@ function renderMonitor(d) {
     }).join('');
   }
 
+  // AI Strategy Analysis
+  const ai = d.ai_strategy || {};
+  const aiHtml = `
+    <div style="display:flex; flex-direction:column; gap:8px">
+      <div style="display:flex; justify-content:space-between; align-items:center">
+        <span class="badge ${ai.signal === 'BUY_CE' ? 'badge-buy' : ai.signal === 'BUY_PE' ? 'badge-sell' : 'badge-hold'}">${ai.signal || 'NO_TRADE'}</span>
+        <div class="metric-value" style="font-size:14px; color:${ai.confidence >= 70 ? 'var(--green-txt)' : 'var(--text2)'}">Conf: ${ai.confidence || 0}%</div>
+      </div>
+      <div style="font-size:12px; line-height:1.4; color:var(--text2)">${ai.reason || 'No clear mean-reversion opportunity identified at the current price level.'}</div>
+      ${ai.signal !== 'NO_TRADE' ? `
+        <div class="grid g2" style="margin-top:8px">
+          <div><label>Targets (T1/T2)</label><div class="pos mono" style="font-size:12px">₹${fmtINR(ai.targets?.t1)} / ${fmtINR(ai.targets?.t2)}</div></div>
+          <div><label>Stop Loss</label><div class="neg mono" style="font-size:12px">${ai.stop_loss}%</div></div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+  g('mn-ai-strategy').innerHTML = aiHtml;
+  g('mn-ai-strategy').className = ai.signal !== 'NO_TRADE' ? 'info-box active' : 'info-box';
+
   g('monitor-result').style.display = 'block';
 }
 
@@ -1129,20 +1198,99 @@ async function loadUsage() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  INIT
+//  TAB 6 — AUTONOMOUS ENGINE
 // ══════════════════════════════════════════════════════════════════════════════
+async function toggleEngine() {
+  const btn = g('btn-engine-toggle');
+  btn.disabled = true;
+  try {
+    const res = await apiFetch('/api/engine/toggle', 'POST');
+    console.log("Engine toggle:", res);
+    await refreshEngineStatus();
+  } catch (e) {
+    alert("Engine Control Error: " + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function refreshEngineStatus() {
+  try {
+    const [status, logData] = await Promise.all([
+      apiFetch('/api/engine/status'),
+      apiFetch('/api/engine/logs')
+    ]);
+
+    const btn = g('btn-engine-toggle');
+    const badge = g('engine-status-badge');
+    
+    if (status.is_running) {
+        badge.className = "badge badge-buy";
+        badge.textContent = "STAT: ACTIVE";
+        btn.textContent = "Stop Autonomous Engine 🛑";
+        btn.style.background = "linear-gradient(135deg, #ef4444, #b91c1c)";
+    } else {
+        badge.className = "badge badge-hold";
+        badge.textContent = "STAT: IDLE";
+        btn.textContent = "Start Autonomous Engine 🚀";
+        btn.style.background = "";
+    }
+
+    g('eng-trades').textContent = status.trades_today || 0;
+    g('eng-pnl').textContent    = fmtINR(status.daily_pnl || 0);
+    g('eng-pnl').className      = (status.daily_pnl || 0) >= 0 ? 'metric-value pos' : 'metric-value neg';
+    g('eng-bias').innerHTML     = `<span class="badge badge-${(status.current_bias || 'NONE').toLowerCase()}">${status.current_bias || 'NONE'}</span>`;
+    g('eng-active').innerHTML   = status.active_pos ? '<span class="badge badge-buy">OPEN</span>' : '<span class="badge badge-hold">—</span>';
+
+    // Logs
+    const logBox = g('engine-logs');
+    if (logData.logs && logData.logs.length) {
+        logBox.innerHTML = logData.logs.map(log => {
+            let color = "var(--text2)";
+            if (log.includes("ENTRY")) color = "var(--green-txt)";
+            if (log.includes("TRADE CLOSED")) color = "var(--cyan-txt)";
+            if (log.includes("ERROR")) color = "var(--red-txt)";
+            if (log.includes("SIGNAL:")) color = "var(--orange-txt)";
+            return `<div style="color:${color}">${log}</div>`;
+        }).join('');
+    }
+  } catch (e) { console.error("Polling error:", e); }
+}
+
+// ── UTILITIES ────────────────────────────────────────────────────────
+function fmtINR(v) { return v !== undefined ? '₹' + Number(v).toLocaleString('en-IN') : '—'; }
+function fmtNum(v, d=2) { return v !== undefined ? Number(v).toFixed(d) : '—'; }
+function fmtK(v) { return v > 1000 ? (v/1000).toFixed(1)+'k' : v; }
+function g(id) { return document.getElementById(id); }
+function sv(id) { return g(id).value; }
+function fv(id) { return parseFloat(g(id).value) || 0; }
+function iv(id) { return parseInt(g(id).value) || 0; }
+function setLoading(id, busy) {
+  const b = g(id);
+  if (busy) { b.disabled=true; b.classList.add('btn-spinning'); }
+  else { b.disabled=false; b.classList.remove('btn-spinning'); }
+}
+function hideErr(id) { g(id).style.display='none'; }
+function showErr(id, msg) { g(id).textContent=msg; g(id).style.display='block'; }
+function sigBadge(sig) {
+  const cls = sig.includes('CALL')||sig.includes('BUY') ? 'badge-buy' : sig.includes('PUT')||sig.includes('SELL') ? 'badge-sell' : 'badge-hold';
+  return `<span class="badge ${cls}">${sig}</span>`;
+}
+
+
+// ── INIT ─────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // Load all expiry selects in parallel
   v3LoadExpiries();
   btLoadExpiries();
   glLoadExpiries();
   mnLoadExpiries();
   loadWorldMarkets();
   loadUsage();
-  // Refresh usage every 60s
-  setInterval(loadUsage, 60000);
-  // Refresh world markets every 5min
+  
+  // Polling loops
+  setInterval(loadUsage, 30000);
   setInterval(loadWorldMarkets, 300000);
+  setInterval(refreshEngineStatus, 3000); // Poll engine stats every 3s
 });
 </script>
 </body>
