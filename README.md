@@ -3,6 +3,22 @@
 
 **Release Version 2.0** — *April 12, 2026, 06:49 AM IST* (Premium Dashboard Edition)
 **Release Version 3.0** — *April 12, 2026, 08:02 AM IST* (The Autonomous Command Center)
+**Release Version 4.0** — *April 13, 2026, 01:05 AM IST* (The Professional Audit Suite)
+
+---
+
+## 📊 Version 4.0: The Professional Audit Suite
+
+This version transforms the dashboard from a real-time monitor into a professional trading audit station, integrating historical performance tracking with global macro precision.
+
+### Key 4.0 Features:
+*   **Comprehensive Trade Journal**: (via `trade_analyzer.py`) Automatically ingest ICICI Direct F&O Trade Book CSVs to generate a localized performance audit.
+*   **Symbol-Level Drill-down**: Interactive "Folder-style" UI. Click on any symbol (e.g., NIFTY) to see the exact P&L breakdown of every specific strike and expiry traded within that symbol.
+*   **Dynamic Date Filtering**: Custom date pickers allow for session-specific or weekly performance reviews, isolating realized P&L across custom timeframes.
+*   **Strict Realized P&L Filtering**: Intelligently separates active (open) positions from completed trades to ensure your dashboard totals reflect actual cash-in-hand profit.
+*   **GIFT Nifty (NSE IX) Integration**: Real-time tracking of offshore Nifty sentiment added to the Global Macro confluence engine.
+*   **Pro Sidebar Navigation**: A complete UI overhaul moving from top-tabs to a modern vertical "side-car" navigation for better ergonomics and more screen real-estate.
+*   **NaN-Robust JSON Layer**: New sanitization logic in `global_cues.py` ensures the dashboard remains 100% stable even when specific world indices return incomplete data.
 
 ---
 
@@ -160,7 +176,8 @@ python nifty_options_trading/evaluate_contract_V2.py "HINAER 28 Apr 4600 CE"
 A detailed index of exactly what every Python file does within the `nifty_options_trading/` package:
 
 ### The Evaluator Engines
-- `evaluate_global.py` : **Global Macro Confluence Evaluator**. Integrates local Indian setups with global US/Asian market sentiment to generate macro-overnight convictions.
+- `trade_analyzer.py` : **Performance Audit Engine**. Parses ICICI Direct F&O Trade Books with date filtering and symbol-to-contract drill-down hierarchy.
+- `evaluate_global.py` : **Global Macro Confluence Evaluator**. Integrates local Indian setups with global US/Asian market sentiment.
 - `evaluate_btst.py` : **Probabilistic BTST Engine**. Aggregates Daily Closing Strength, Put-Call Ratio, IV proxy, and Global Cues to compute a 0-100 confidence score for gap-ups.
 - `evaluate_contract_V3.py` : **Multi-Strike Evaluator**. Dynamically locates ATM strike and evaluates up to 9 closest active strikes (4 above, 4 below) without requiring explicit strike inputs.
 - `evaluate_contract_V2.py` : **Intraday Engine V2**. Employs fixed percentage targets (+5%, +10%) alongside strict -3% momentum traps.

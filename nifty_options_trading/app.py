@@ -77,6 +77,7 @@ from nifty_options_trading.global_cues import (
     fetch_world_markets, derive_btst_cues
 )
 from nifty_options_trading.trading_engine import AutonomousEngine
+from nifty_options_trading.trade_analyzer import parse_fno_trade_book
 
 # ── Read env once ─────────────────────────────────────────────────────────────
 API_KEY       = os.getenv("API_KEY", "")
@@ -699,6 +700,39 @@ async def risk_simulate(req: RiskSimRequest):
             "stop_loss":  round(sl, 2),
         },
     })
+
+
+# ── Trade Analysis API ────────────────────────────────────────────────────────
+@app.get("/api/trades/analysis")
+async def get_trades_analysis(start_date: Optional[str] = None, end_date: Optional[str] = None):
+    """
+    Scans the 'mytrades' directory for the latest F&O trade book and returns
+    a summarized performance report with optional date filtering.
+    """
+    # Check package folder first, then fall back to root
+    trades_dir = current_dir / "mytrades"
+    if not trades_dir.exists():
+        trades_dir = parent_dir / "mytrades"
+    
+    if not trades_dir.exists():
+        return JSONResponse({"error": "No 'mytrades' folder found in root or package directory."}, status_code=404)
+    
+    csv_files = list(trades_dir.glob("*.csv"))
+    if not csv_files:
+        return JSONResponse({"error": "No CSV files found in 'mytrades' folder."}, status_code=404)
+    
+    # Get the most recently modified CSV
+    latest_csv = max(csv_files, key=lambda p: p.stat().st_mtime)
+    
+    # Offload blocking IO to the thread pool
+    report = await asyncio.get_event_loop().run_in_executor(
+        _executor, parse_fno_trade_book, str(latest_csv), start_date, end_date
+    )
+    
+    if "error" in report:
+        return JSONResponse(report, status_code=500)
+        
+    return report
 
 
 # ══════════════════════════════════════════════════════════════════════════════

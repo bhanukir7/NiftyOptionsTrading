@@ -5,6 +5,7 @@ Provides live fetching of global indices via yfinance and derives sentiment cues
 
 from datetime import datetime
 import time
+import math
 from typing import Literal, Optional
 import pandas as pd
 
@@ -15,9 +16,11 @@ _GLOBAL_MARKETS_TTL = 300  # 5 minutes
 
 # Market mapping for Dashboard & BTST
 WORLD_INDICES = {
-    # India
-    "Nifty 50":       "^NSEI",
-    "Bank Nifty":     "^NSEBANK",
+    "BANK NIFTY":     "^NSEBANK",
+    "FIN NIFTY":      "^CNXFIN",
+    "NIFTY MIDCAP":   "NIFTY_MIDCAP_100.NS",
+    "GIFT NIFTY (NSE IX Proxy)": "^NSEI",
+    "SENSEX":         "^BSESN",
     # Americas
     "S&P 500":        "^GSPC",
     "NASDAQ":         "^IXIC",
@@ -31,28 +34,29 @@ WORLD_INDICES = {
     # Asia
     "Nikkei 225":     "^N225",
     "Hang Seng":      "^HSI",
+    "STI (Singapore)": "^STI",
     "Shanghai":       "000001.SS",
     "Kospi":          "^KS11",
-    "Sensex":         "^BSESN",
     "Taiwan (TWII)":  "^TWII",
     # Australia
     "ASX 200":        "^AXJO",
 }
 
 REGION_MAP = {
-    "Nifty 50": "India", "Bank Nifty": "India", "Sensex": "India",
+    "BANK NIFTY": "India", "FIN NIFTY": "India", "NIFTY MIDCAP": "India",
+    "GIFT NIFTY (NSE IX Proxy)": "India", "SENSEX": "India",
     "S&P 500": "Americas", "NASDAQ": "Americas", "Dow Jones": "Americas",
     "FTSE 100": "Europe", "DAX": "Europe", "CAC 40": "Europe",
     "Euro Stoxx 50": "Europe", "SMI (Switzerland)": "Europe",
-    "Nikkei 225": "Asia", "Hang Seng": "Asia", "Shanghai": "Asia",
-    "Kospi": "Asia", "Taiwan (TWII)": "Asia",
+    "Nikkei 225": "Asia", "Hang Seng": "Asia", "STI (Singapore)": "Asia", 
+    "Shanghai": "Asia", "Kospi": "Asia", "Taiwan (TWII)": "Asia",
     "ASX 200": "Australia",
 }
 
 # Ticker → BTST cue group mapping
 _BTST_US_TICKERS     = ["^GSPC", "^IXIC", "^DJI"]             # S&P500, Nasdaq, Dow
 _BTST_EUROPE_TICKERS = ["^FTSE", "^GDAXI", "^FCHI"]         # FTSE 100, DAX, CAC 40
-_BTST_ASIA_TICKERS   = ["^N225", "^HSI", "000001.SS", "^KS11", "^TWII"]  # Asia
+_BTST_ASIA_TICKERS   = ["^N225", "^HSI", "^STI", "000001.SS", "^KS11", "^TWII"]  # Asia
 _BTST_INDIA_TICKER   = "^NSEI"                                # Nifty50 as Gift Nifty proxy
 
 def fetch_world_markets() -> dict:
@@ -79,12 +83,22 @@ def fetch_world_markets() -> dict:
         results = []
         for name, ticker in WORLD_INDICES.items():
             try:
-                chg = float(pct.get(ticker, 0.0) or 0.0) * 100
-                lc  = float(last_close.get(ticker, 0.0) or 0.0)
-                pc  = float(prev_close.get(ticker, 0.0) or 0.0)
+                raw_chg = pct.get(ticker, 0.0)
+                chg = float(raw_chg if pd.notnull(raw_chg) else 0.0) * 100
+                
+                raw_lc = last_close.get(ticker, 0.0)
+                lc = float(raw_lc if pd.notnull(raw_lc) else 0.0)
+                
+                raw_pc = prev_close.get(ticker, 0.0)
+                pc = float(raw_pc if pd.notnull(raw_pc) else 0.0)
             except Exception:
                 chg, lc, pc = 0.0, 0.0, 0.0
             
+            # Final sanity check for JSON compliance
+            if math.isnan(chg): chg = 0.0
+            if math.isnan(lc):  lc = 0.0
+            if math.isnan(pc):  pc = 0.0
+
             results.append({
                 "name":   name,
                 "ticker": ticker,
@@ -144,9 +158,9 @@ def derive_btst_cues(markets: list[dict]) -> dict:
         "derived_cues": {
             "gift_nifty": {
                 "signal": gift_nifty,
-                "source": "Nifty 50 (live proxy)",
+                "source": "Nifty 50 (Proxy for GIFT Nifty on NSE IX)",
                 "pct":    round(nifty_pct, 3),
-                "indices": [{"name": nifty_m.get("name", "Nifty 50"), "pct": round(nifty_pct, 3)}],
+                "indices": [{"name": nifty_m.get("name", "GIFT NIFTY (NSE IX Proxy)"), "pct": round(nifty_pct, 3)}],
             },
             "us_market": {
                 "signal": us_market,
@@ -168,7 +182,7 @@ def derive_btst_cues(markets: list[dict]) -> dict:
             },
             "asia_market": {
                 "signal": asia_market,
-                "source": "Nikkei + Hang Seng + Shanghai + Kospi + Taiwan average",
+                "source": "Nikkei + Hang Seng + STI + Shanghai + Kospi + Taiwan average",
                 "pct":    round(asia_avg, 3),
                 "indices": [
                     {"name": by_ticker[t]["name"], "pct": round(by_ticker[t]["change_pct"], 3)}
