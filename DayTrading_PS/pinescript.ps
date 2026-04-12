@@ -1,0 +1,280 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © ToxicJ3ster
+
+//@version=5
+indicator("ToxicJ3ster - Day Trading Signals", shorttitle="ToxicJ3ster - Day Trader", overlay=true)
+
+// Input parameters for Moving Averages
+shortMAPeriod = input(9, title="Short Moving Average Period", group="Crossover Moving Averages")
+shortMAType = input.string("EMA", title="Short MA Type", options=["EMA", "SMA", "WMA", "HMA", "ALMA", "LIN", "ZLMA"], group="Crossover Moving Averages")
+longMAPeriod = input(21, title="Long Moving Average Period", group="Crossover Moving Averages")
+longMAType = input.string("EMA", title="Long MA Type", options=["EMA", "SMA", "WMA", "HMA", "ALMA", "LIN", "ZLMA"], group="Crossover Moving Averages")
+
+higherTimeframe = input.timeframe("15", title="Higher Timeframe", group="Multiple Timeframe Analysis")
+useHigherTimeframe = input(false, title="Use Higher Timeframe Analysis", group="Multiple Timeframe Analysis")
+
+// Input parameters for RSI
+rsiPeriod = input.int(9, title="RSI Period", group="RSI Filtering")
+overboughtLevel = input.int(75, title="Overbought Level", group="RSI Filtering")
+oversoldLevel = input.int(25, title="Oversold Level", group="RSI Filtering")
+
+// RSI Trend Filter
+rsiTrendFilterPeriod = input.int(3, title="RSI Trend Filter Period", group="RSI Filtering")
+
+// Input parameters for EMA Delta Threshold
+deltaThreshold = input.float(0.10, title="EMA Delta Threshold", group="Trend Confirmation")
+
+// Input parameters for Volume and ATR conditions
+volumeMultiplier = input.float(0.6, title="Volume Multiplier", group="Volume and ATR Conditions")
+atrMultiplier = input.float(0.6, title="ATR Multiplier", group="Volume and ATR Conditions")
+
+// Input parameters for ADX
+adxPeriod = input.int(14, title="ADX Period", group="ADX")
+adxThreshold = input.int(25, title="ADX Threshold", group="ADX")
+
+// Input parameters for Bollinger Bands
+bbLength = input.int(20, title="Bollinger Bands Length", group="Bollinger Bands")
+bbStdDev = input.float(2.0, title="Bollinger Bands Std Dev", group="Bollinger Bands")
+
+// Input parameter for label offset amount
+labelOffsetAmount = input.int(200, title="Label Offset Amount", group="Labels")
+
+// Input parameters for volume-based signals
+volumeSpikeThreshold = input.float(0.7, title="Volume Spike Threshold (Multiplier)", group="Volume-Based Signals")
+volumeLookbackCandles = input.int(10, title="Lookback Candles for Average Volume", group="Volume-Based Signals")
+bodySizeThresholdPercent = input.float(25, title="Minimum Body Size (%)", minval=0, maxval=100, group="Volume-Based Signals")
+
+// Input parameter for trend reversal
+detectTrendReversal = input(true, title="Mark Trend Reversals", group="Labels")
+
+// Function to check if a candle has a small body
+hasSmallBody(bodySizeThresholdPercent) =>
+    bodySize = math.abs(close - open)
+    candleRange = high - low
+    bodySize < candleRange * bodySizeThresholdPercent / 100
+
+// Helper function to calculate various types of Moving Averages
+f_ma(source, period, type) =>
+    switch type
+        "SMA"  => ta.sma(source, period)
+        "EMA"  => ta.ema(source, period)
+        "WMA"  => ta.wma(source, period)
+        "HMA"  => ta.hma(source, period)
+        "ALMA" => ta.alma(source, period, 0.85, 6)
+        "LIN"  => ta.linreg(source, period, 0)
+        "ZLMA" => (2 * ta.wma(ta.wma(source, period), 3)) - ta.wma(ta.wma(ta.wma(source, period), 3), period)
+
+// Helper function to request security data properly
+f_security(_sym, _res, _src) =>
+    request.security(_sym, _res, _src[barstate.isrealtime ? 1 : 0], barmerge.gaps_off, lookahead=barmerge.lookahead_off)[barstate.isrealtime ? 0 : 1]
+
+// Helper function to trigger alerts
+f_alert(condition, message) =>
+    if condition
+        alert(message, alert.freq_once_per_bar_close)
+
+// Helper Function to find highest high in a given range
+find_highest(highs, length) =>
+    var float highestHigh = na
+    for i = 0 to length - 1
+        highestHigh := na(highestHigh) ? highs[i] : math.max(highestHigh, highs[i])
+    highestHigh
+
+// Helper Function to find lowest low in a given range
+find_lowest(lows, length) =>
+    var float lowestLow = na
+    for i = 0 to length - 1
+        lowestLow := na(lowestLow) ? lows[i] : math.min(lowestLow, lows[i])
+    lowestLow
+
+// Retrieve the price data using the helper function
+price = f_security(syminfo.tickerid, timeframe.period, close)
+
+// Calculate short and long period Moving Averages
+shortMA = f_ma(price, shortMAPeriod, shortMAType)
+longMA = f_ma(price, longMAPeriod, longMAType)
+
+// Calculate the difference (delta) between the short and long Moving Averages
+emaDelta = math.abs(shortMA - longMA)
+
+// Calculate the Relative Strength Index (RSI)
+rsi = ta.rsi(close, rsiPeriod)
+smoothedRSI = ta.sma(rsi, 30)
+
+// RSI trend function (detect upward or downward trend in RSI)
+isRSITrendingUp = ta.rising(rsi, rsiTrendFilterPeriod)
+isRSITrendingDown = ta.falling(rsi, rsiTrendFilterPeriod)
+
+// Calculate higher timeframe data (only if enabled)
+[higherShortMA, higherLongMA] = request.security(syminfo.tickerid, higherTimeframe, [f_ma(close, shortMAPeriod, shortMAType), f_ma(close, longMAPeriod, longMAType)])
+
+// Determine higher timeframe trend
+higherTimeframeBullish = useHigherTimeframe and higherShortMA > higherLongMA
+higherTimeframeBearish = useHigherTimeframe and higherShortMA < higherLongMA
+
+// Determine trend direction and set the color accordingly
+isTrendingUp() => shortMA > longMA
+isTrendingDown() => shortMA < longMA
+trendColor = isTrendingUp() ? color.new(color.green, 85) : isTrendingDown() ? color.new(color.red, 85) : color.new(color.blue, 85)
+
+// Plot short and long period Moving Averages and fill the area between them with the trend color
+plotShortMA = plot(shortMA, title="Short Period Moving Average", color=color.new(color.fuchsia, 0), linewidth=2, display=display.pane)
+plotLongMA = plot(longMA, title="Long Period Moving Average", color=color.new(color.lime, 0), linewidth=1, display=display.pane)
+fill(plotShortMA, plotLongMA, color=trendColor, title="Short/Long Divergence Fill")
+
+// Calculate average volume and average True Range (ATR)
+var volumeFilterPeriod = input.int(20, "Volume Filter Period", group="Volume and ATR Conditions")
+var volatilityFilterPeriod = input.int(20, "Volatility Filter Period", group="Volume and ATR Conditions")
+
+averageVolume = ta.sma(volume, volumeFilterPeriod)
+
+// Calculate ATR for dynamic RSI levels
+atrPeriod = input.int(14, title="ATR Period for Volatility", minval=1)
+atr = ta.atr(atrPeriod)
+averageATR = ta.sma(atr, volatilityFilterPeriod)
+
+atrUpperBand = 50 + atr * 0.5 
+atrLowerBand = 50 - atr * 0.5 
+
+// Determine if the current volume or ATR is significantly higher than average
+volumeCondition = volume > averageVolume * volumeMultiplier
+volatilityCondition = atr > averageATR * atrMultiplier
+
+// Generate Bullish and Bearish signals based on Multi-Factor Signal Confirmation
+bullCrossover = ta.crossover(shortMA, longMA)
+bearCrossOver = ta.crossunder(shortMA, longMA)
+
+bullSignal = bullCrossover and (volumeCondition or volatilityCondition) 
+bearSignal = bearCrossOver and (volumeCondition or volatilityCondition)
+
+// Plot crossovers
+plotshape(bullCrossover, title="Bull crossover", color=color.green, style=shape.xcross, location=location.belowbar, display=display.pane)
+plotshape(bearCrossOver, title="Bear crossover", color=color.red, style=shape.xcross, location=location.abovebar, display=display.pane)
+
+// Trigger alerts for Bullish and Bearish signals
+f_alert(bullSignal, "Calls Alert: 9ema crossed over 21ema with volume confirmation")
+f_alert(bearSignal, "Puts Alert: 9ema crossed under 21ema with volume confirmation")
+
+// Input parameter for VWAP source
+vwapSource = input.string(defval="Close", title="VWAP Source", options=["Close", "HL2", "HLC3", "OHLC4"], group="VWAP")
+
+// Calculate VWAP
+vwapPrice = switch vwapSource
+    "Close" => close
+    "HL2" => (high + low) / 2
+    "HLC3" => (high + low + close) / 3
+    "OHLC4" => (open + high + low + close) / 4
+
+vwap = ta.vwap(vwapPrice)
+
+// Variables to track the state of trend confirmations
+var float crossoverBullTime = na
+var float crossoverBearTime = na
+var bool confirmedBull = false
+var bool confirmedBear = false
+
+// Update trend tracking variables based on signals
+if bullSignal
+    crossoverBullTime := bar_index
+    crossoverBearTime := na
+    confirmedBull := false
+    confirmedBear := false
+
+if bearSignal
+    crossoverBearTime := bar_index
+    crossoverBullTime := na
+    confirmedBull := false
+    confirmedBear := false
+
+// Confirm trends
+isBullConfirmed = not confirmedBull and           // Ensure the bullish trend is not already confirmed
+                  not na(crossoverBullTime) and   // Check if a bullish crossover has occurred
+                  (emaDelta > deltaThreshold) and // Ensure the EMA difference is above the specified threshold, indicating a significant trend
+                  (shortMA > longMA)              // Ensure the short-term MA is above the long-term MA, indicating an uptrend
+
+isBearConfirmed = not confirmedBear and           // Ensure the bearish trend is not already confirmed
+                  not na(crossoverBearTime) and   // Check if a bearish crossover has occurred
+                  (emaDelta > deltaThreshold) and // Ensure the EMA difference is above the specified threshold, indicating a significant trend
+                  (shortMA < longMA)              // Ensure the short-term MA is below the long-term MA, indicating a downtrend
+
+// Variables to track the last confirmed trends
+var float lastConfirmedBullTime = na
+var float lastConfirmedBearTime = na
+
+if isBullConfirmed
+    lastConfirmedBullTime := bar_index
+    alert("Confirmed Bull Alert: 9ema crossed over 21ema with volume and trend confirmation", alert.freq_once_per_bar_close)
+    confirmedBull := true
+
+if isBearConfirmed
+    lastConfirmedBearTime := bar_index
+    alert("Confirmed Bear Alert: 9ema crossed under 21ema with volume and trend confirmation", alert.freq_once_per_bar_close)
+    confirmedBear := true
+
+// Plot labels for confirmed Bullish and Bearish trends
+if bar_index == lastConfirmedBullTime
+    line.new(x1=bar_index, y1=high + labelOffsetAmount * syminfo.mintick, x2=bar_index, y2=high, color=color.green, width=1, style=line.style_dotted)
+    label.new(x=bar_index, y=high + labelOffsetAmount * syminfo.mintick, text="Bull Trend Confirmed", textcolor=color.white, style=label.style_label_down, color=color.new(color.green, 50), xloc=xloc.bar_index, yloc=yloc.price, size=size.small)
+
+if bar_index == lastConfirmedBearTime
+    line.new(x1=bar_index, y1=low - labelOffsetAmount * syminfo.mintick, x2=bar_index, y2=low, color=color.red, width=1, style=line.style_dotted)
+    label.new(x=bar_index, y=low - labelOffsetAmount * syminfo.mintick, text="Bear Trend Confirmed", textcolor=color.white, style=label.style_label_up, color=color.new(color.red, 50), xloc=xloc.bar_index, yloc=yloc.price, size=size.small)
+
+// MACD Calculation
+[macdLine, signalLine, macdHist] = ta.macd(close, 12, 26, 9)
+
+// MACD Histogram Change and Volume Confirmation
+macdHistBullishChange = macdHist >= 0 and macdHist[1] <= 0 and volume <= volume[1]
+macdHistBearishChange = macdHist <= 0 and macdHist[1] >= 0 and volume <= volume[1]
+
+//** ################################################################################################ **//
+//** ################################## Buy / Sell Signal Plotting ################################## **//
+//** ################################################################################################ **//
+
+macdBuy = macdHistBullishChange and bar_index > lastConfirmedBullTime and (not useHigherTimeframe or higherTimeframeBullish)
+macdSell = macdHistBearishChange and bar_index > lastConfirmedBearTime and (not useHigherTimeframe or higherTimeframeBearish)
+
+// VWAP-based Buy/Sell Signals
+vwapBuy  = ta.crossover(close, vwap) and confirmedBull and (not useHigherTimeframe or higherTimeframeBullish)
+vwapSell = ta.crossunder(close, vwap) and confirmedBear and (not useHigherTimeframe or higherTimeframeBearish)
+
+// RSI
+rsiBuy = smoothedRSI <= oversoldLevel and bar_index > lastConfirmedBullTime and (not useHigherTimeframe or higherTimeframeBullish) and isTrendingUp()
+rsiSell = smoothedRSI >= overboughtLevel and bar_index > lastConfirmedBearTime and (not useHigherTimeframe or higherTimeframeBearish) and isTrendingDown()
+
+// Volume-Based Buy/Sell Signals
+averageVolumeLookback = ta.sma(volume, volumeLookbackCandles)
+
+volumeReversalBuy = volume[1] > averageVolumeLookback * volumeSpikeThreshold 
+   and not hasSmallBody(bodySizeThresholdPercent)[1] 
+   and close[1] < open[1] and close > open  
+   and not macdBuy and not vwapBuy and not rsiBuy
+   and not macdSell and not vwapSell and not rsiSell
+
+volumeReversalSell = volume[1] > averageVolumeLookback * volumeSpikeThreshold
+   and not hasSmallBody(bodySizeThresholdPercent)[1] 
+   and close[1] > open[1] and close < open 
+   and not macdBuy and not vwapBuy and not rsiBuy
+   and not macdSell and not vwapSell and not rsiSell
+
+anyBuySignal = vwapBuy or macdBuy or rsiBuy or volumeReversalBuy
+anySellSignal = not anyBuySignal and (vwapSell or macdSell or rsiSell or volumeReversalSell)
+
+hasSignal = anyBuySignal or anySellSignal
+
+// Plot Buy/Sell Signals only if there's no prior signal
+plotshape(not hasSignal[1] and anyBuySignal, title="Buy", location=location.belowbar, color=color.new(color.green, 50), textcolor=color.white, style=shape.labelup, text="Calls", display=display.pane)
+plotshape(not hasSignal[1] and anySellSignal, title="Sell", location=location.abovebar, color=color.new(color.red, 50), textcolor=color.white, style=shape.labeldown, text="Puts", display=display.pane)
+
+// Plot Divergence Detection
+if detectTrendReversal
+    bullDiv = confirmedBull and ta.lowest(low, 5)[1] < ta.lowest(low, 5)[2] and rsi[1] > rsi[2] and volumeCondition
+    bearDiv = confirmedBear and ta.highest(high, 5)[1] > ta.highest(high, 5)[2] and rsi[1] < rsi[2] and volumeCondition
+
+    if bullDiv
+        line.new(x1=bar_index, y1=low - (labelOffsetAmount / 2) * syminfo.mintick, x2=bar_index, y2=low, color=color.red, width=2, style=line.style_dotted)
+        label.new(x=bar_index, y=low - (labelOffsetAmount / 2) * syminfo.mintick, text="Bull Trend Reversal!", textcolor=color.white, style=label.style_label_up, color=color.new(color.red, 50), xloc=xloc.bar_index, yloc=yloc.price, size=size.small)
+
+    if bearDiv
+        line.new(x1=bar_index, y1=high + (labelOffsetAmount / 2) * syminfo.mintick, x2=bar_index, y2=high, color=color.green, width=2, style=line.style_dotted)
+        label.new(x=bar_index, y=high + (labelOffsetAmount / 2) * syminfo.mintick, text="Bear Trend Reversal!", textcolor=color.white, style=label.style_label_down, color=color.new(color.green, 50), xloc=xloc.bar_index, yloc=yloc.price, size=size.small)

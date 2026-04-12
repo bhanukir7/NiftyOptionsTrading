@@ -78,6 +78,10 @@ from nifty_options_trading.global_cues import (
 )
 from nifty_options_trading.trading_engine import AutonomousEngine
 from nifty_options_trading.trade_analyzer import parse_fno_trade_book
+from nifty_options_trading.evaluate_daytrading import (
+    analyze_daytrading_signals, generate_daytrading_verdict
+)
+from nifty_options_trading.strict_validator import validate_strict_signal
 
 # ── Read env once ─────────────────────────────────────────────────────────────
 API_KEY       = os.getenv("API_KEY", "")
@@ -276,6 +280,113 @@ async def v3_analyze(req: V3Request):
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(_executor, lambda: _run_v3(req))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return JSONResponse(result)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  POST /api/daytrading/analyze  — Day Trading Signals Evaluator (Pine Script Port)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class DayTradingRequest(BaseModel):
+    symbol: str = "NIFTY"
+    expiry: str = ""
+    option_type: str = "CE"
+    capital: float = 50_000.0
+
+
+def _run_daytrading(req: DayTradingRequest) -> dict:
+    from nifty_options_trading.evaluate_contract_V3 import fetch_multiday_data
+    
+    breeze = _get_breeze()
+    stock_code = req.symbol.upper()
+
+    # 1. Fetch 5-min spot data (enough for EMA/RSI/MACD burn-in)
+    spot_df = fetch_multiday_data(breeze, stock_code, "NSE", "5minute", days_back=10)
+    if spot_df.empty:
+        raise HTTPException(status_code=500, detail="Could not fetch spot data. Check API or trading hours.")
+
+    analysis = analyze_daytrading_signals(spot_df)
+    verdict = generate_daytrading_verdict(analysis, req.option_type.upper())
+
+    # 2. Fetch option chain for strike evaluation
+    chain_df = get_option_chain(breeze, stock_code, req.expiry)
+    strikes_data = []
+    spot_price = analysis.get("close", 0)
+    lot_size = get_dynamic_lot_size(stock_code)
+
+    if chain_df is not None and not chain_df.empty and spot_price > 0:
+        opt_type_full = "CALL" if req.option_type.upper() == "CE" else "PUT"
+        chain_filtered = chain_df[chain_df["right"].str.upper().isin([opt_type_full, req.option_type.upper()])].copy()
+
+        if not chain_filtered.empty:
+            chain_filtered["strike_price"] = chain_filtered["strike_price"].astype(float)
+            # Center around current spot
+            atm_diff = (chain_filtered["strike_price"] - spot_price).abs()
+            atm_idx = atm_diff.idxmin()
+            atm_strike = chain_filtered.loc[atm_idx, "strike_price"]
+
+            unique_strikes = sorted(chain_filtered["strike_price"].unique())
+            try:
+                atm_pos = unique_strikes.index(atm_strike)
+                start_pos = max(0, atm_pos - 4)
+                end_pos = min(len(unique_strikes), atm_pos + 5)
+                selected_strikes = unique_strikes[start_pos:end_pos]
+            except ValueError:
+                selected_strikes = []
+
+            target_df = chain_filtered[chain_filtered["strike_price"].isin(selected_strikes)].copy()
+            target_df = target_df.sort_values("strike_price")
+
+            # Signal conviction multipliers for targets
+            m1, m2, s1 = 1.05, 1.10, 0.97
+            if analysis["signal"] in ["BUY_CALL", "BUY_PUT"]:
+                # Stronger signal = slightly more aggressive targets
+                m1, m2, s1 = 1.10, 1.20, 0.95
+
+            for _, row in target_df.iterrows():
+                strike = float(row["strike_price"])
+                ltp = float(row.get("last_traded_price", 0) or 0)
+                lot_cost = ltp * lot_size if ltp > 0 else 0
+                num_lots = int(req.capital / lot_cost) if lot_cost > 0 else 0
+                tag = "ATM" if abs(strike - atm_strike) < 1 else ("ITM" if (req.option_type == "CE" and strike < atm_strike) or (req.option_type == "PE" and strike > atm_strike) else "OTM")
+                
+                strikes_data.append({
+                    "strike": strike,
+                    "ltp": round(ltp, 2),
+                    "tag": tag,
+                    "lot_cost": round(lot_cost, 2),
+                    "num_lots": num_lots,
+                    "target1": round(ltp * m1, 2),
+                    "target2": round(ltp * m2, 2),
+                    "sl": round(ltp * s1, 2),
+                })
+
+    breeze.log_api_usage()
+    return {
+        "symbol": stock_code,
+        "spot": round(spot_price, 2),
+        "expiry": req.expiry,
+        "option_type": req.option_type.upper(),
+        "signal": analysis.get("signal", "HOLD"),
+        "reason": analysis.get("reason", ""),
+        "trend": analysis.get("trend", "NONE"),
+        "verdict": verdict,
+        "indicators": analysis.get("indicators", {}),
+        "lot_size": lot_size,
+        "strikes": strikes_data,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+@app.post("/api/daytrading/analyze")
+async def daytrading_analyze(req: DayTradingRequest):
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(_executor, lambda: _run_daytrading(req))
     except HTTPException:
         raise
     except Exception as e:
@@ -807,3 +918,77 @@ async def engine_logs():
     if not _engine:
         return {"logs": ["Engine not initialized"]}
     return {"logs": list(_engine.logs)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  POST /api/strict/analyze — Strict Intraday Signal Validator
+# ══════════════════════════════════════════════════════════════════════════════
+
+class StrictRequest(BaseModel):
+    symbol: str = "NIFTY"
+    expiry: str = ""
+    option_type: str = "CE"
+    capital: float = 50_000.0
+
+def _run_strict_analysis(req: StrictRequest) -> dict:
+    from nifty_options_trading.evaluate_contract_V3 import fetch_multiday_data
+    
+    breeze = _get_breeze()
+    stock_code = req.symbol.upper()
+
+    # Fetch 5-min data
+    df = fetch_multiday_data(breeze, stock_code, "NSE", "5minute", days_back=10)
+    if df.empty:
+        return {"error": "Could not fetch spot data."}
+
+    strict_res = validate_strict_signal(df)
+    
+    # Enrich with option data
+    spot_price = strict_res["indicators"]["price"]
+    lot_size = get_dynamic_lot_size(stock_code)
+    strikes_data = []
+    
+    if req.expiry:
+        chain_df = get_option_chain(breeze, stock_code, req.expiry)
+        if chain_df is not None and not chain_df.empty:
+             opt_type_full = "CALL" if req.option_type.upper() == "CE" else "PUT"
+             target_df = chain_df[chain_df["right"].str.upper().isin([opt_type_full, req.option_type.upper()])].copy()
+             
+             if not target_df.empty:
+                 target_df["strike_price"] = target_df["strike_price"].astype(float)
+                 atm_diff = (target_df["strike_price"] - spot_price).abs()
+                 atm_idx = atm_diff.idxmin()
+                 atm_strike = target_df.loc[atm_idx, "strike_price"]
+                 
+                 unique_strikes = sorted(target_df["strike_price"].unique())
+                 try:
+                     atm_pos = unique_strikes.index(atm_strike)
+                     selected_strikes = unique_strikes[max(0, atm_pos-2):min(len(unique_strikes), atm_pos+3)]
+                 except: selected_strikes = []
+                 
+                 for _, row in target_df[target_df["strike_price"].isin(selected_strikes)].iterrows():
+                     ltp = float(row.get("last_traded_price", 0) or 0)
+                     strikes_data.append({
+                         "strike": float(row["strike_price"]),
+                         "ltp": round(ltp, 2),
+                         "tag": "ATM" if abs(float(row["strike_price"]) - atm_strike) < 1 else "ITM/OTM"
+                     })
+
+    return {
+        "symbol": stock_code,
+        "signal": strict_res["signal"],
+        "confidence": strict_res["confidence"],
+        "reasons": strict_res["reasons"],
+        "indicators": strict_res["indicators"],
+        "strikes": strikes_data,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.post("/api/strict/analyze")
+async def strict_analyze(req: StrictRequest):
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(_executor, lambda: _run_strict_analysis(req))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return JSONResponse(result)

@@ -20,7 +20,7 @@ if parent_dir not in sys.path:
 
 from nifty_options_trading.safe_breeze import SafeBreeze
 from nifty_options_trading.market_stream import MarketStream
-from nifty_options_trading.strategy import analyze_and_generate_signal
+from nifty_options_trading.strict_validator import validate_strict_signal
 from nifty_options_trading.alerts import send_alert
 from nifty_options_trading.rule_engine import (
     StateManager, Config, determine_bias, can_trade, Position,
@@ -34,7 +34,7 @@ API_SECRET = os.getenv("API_SECRET")
 SESSION_TOKEN = os.getenv("SESSION_TOKEN")
 AVAILABLE_CAPITAL = float(os.getenv("AVAILABLE_FUNDS", "50000"))
 
-STOCK_CODES = ["NIFTY", "CNXBAN", "VEDLIM"]
+STOCK_CODES = ["NIFTY", "CNXBAN", "VEDLIM", "MAZDOC", "RELIND", "COCSHI"]
 EXCHANGE_CODE = "NSE"
 INTERVAL = "5minute"
 
@@ -183,9 +183,14 @@ def main():
                                     vwap = df['close'].mean()
                                     
                                 state.current_bias = determine_bias(spot_price, vwap)
-                                signal = analyze_and_generate_signal(df)
-                                
+                                strict_res = validate_strict_signal(df)
+                                signal = "HOLD"
+                                if strict_res["signal"] == "BUY": signal = "BUY_CALL"
+                                if strict_res["signal"] == "SELL": signal = "BUY_PUT"
+
                                 if signal != "HOLD":
+                                    print(f"[{current_time_str}] STRICT SIGNAL: {signal} | Confidence: {strict_res['confidence']}%")
+                                    print(f"[{current_time_str}] Reasons: {', '.join(strict_res['reasons'])}")
                                     opt_type = "CE" if signal == "BUY_CALL" else "PE"
                                     day_open = df.iloc[0]["open"]
                                     intraday_pct = abs(spot_price - day_open) / day_open * 100
@@ -215,6 +220,8 @@ def main():
                                                f"Instrument: {stock_code} {atm_strike} {opt_type}\n"
                                                f"Spot Exec Price: {entry_price:.2f}\n"
                                                f"Bias: {state.current_bias}\n"
+                                               f"Confidence: {strict_res['confidence']}%\n"
+                                               f"Reasons: {', '.join(strict_res['reasons'])}\n"
                                                f"Qty: {qty} | Risk Allocated: ₹{risk_amount:.2f}\n"
                                                f"Daily Trade Count: {state.trades_today}/{config.max_trades_per_day}")
                                         send_alert(msg)

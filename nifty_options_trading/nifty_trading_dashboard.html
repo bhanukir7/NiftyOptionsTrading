@@ -306,6 +306,7 @@
   <nav class="tabs-wrap" role="tablist">
     <button class="tab-btn active" id="tab-v3"     onclick="switchTab('v3')"     role="tab">📊 V3 Multi-Strike</button>
     <button class="tab-btn"        id="tab-btst"   onclick="switchTab('btst')"   role="tab">📅 BTST Evaluator</button>
+    <button class="tab-btn"        id="tab-daytrading" onclick="switchTab('daytrading')" role="tab">🎯 Day Trading</button>
     <button class="tab-btn"        id="tab-global" onclick="switchTab('global')" role="tab">🌍 Global Macro</button>
     <button class="tab-btn"        id="tab-monitor"onclick="switchTab('monitor')"role="tab">🔭 Max-Pain Monitor</button>
     <button class="tab-btn"        id="tab-engine" onclick="switchTab('engine')" role="tab">🤖 Autonomous Engine</button>
@@ -392,6 +393,64 @@
 <!-- ════════════════════════════════════════════════════════════════════════
      TAB 2 — BTST EVALUATOR
 ════════════════════════════════════════════════════════════════════════════ -->
+<!-- ════════════════════════════════════════════════════════════════════════
+     TAB — DAY TRADING (Pine Script Port)
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="panel-daytrading" class="panel">
+  <div class="card">
+    <div class="card-title">Day Trading Parameters (9/21 EMA + VWAP + MACD)</div>
+    <div class="grid g3">
+      <div><label>Symbol</label><input id="dt-sym" value="NIFTY" oninput="this.value=this.value.toUpperCase()" onchange="dtLoadExpiries()"></div>
+      <div>
+        <label>Option Type</label>
+        <select id="dt-type" onchange="dtLoadExpiries()">
+          <option value="CE">CE — Call</option>
+          <option value="PE">PE — Put</option>
+        </select>
+      </div>
+      <div>
+        <label>Expiry Date</label>
+        <select id="dt-expiry"><option value="">⏳ loading…</option></select>
+      </div>
+      <div><label>Capital (₹)</label><input type="number" id="dt-cap" value="50000"></div>
+    </div>
+  </div>
+  <button class="btn" id="btn-dt" onclick="runDayTrading()">Analyse Day Trading setup ↗</button>
+  <div id="dt-error" class="error-box" style="display:none"></div>
+
+  <div id="dt-result" style="display:none;margin-top:14px">
+    <div class="grid g4" style="margin-bottom:12px">
+      <div class="metric"><div class="metric-label">Strict Signal</div><div id="dt-sig" class="metric-value"></div></div>
+      <div class="metric"><div class="metric-label">Confidence</div><div id="dt-conf" class="metric-value"></div></div>
+      <div class="metric"><div class="metric-label">Spot Price</div><div id="dt-spot" class="metric-value"></div></div>
+      <div class="metric"><div class="metric-label">Lot Size</div><div id="dt-lot" class="metric-value"></div></div>
+    </div>
+    
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title">Strict Rule Validation Breakdown</div>
+      <div id="dt-reasons" style="font-size:12px;display:flex;flex-wrap:wrap;gap:8px"></div>
+    </div>
+
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title">Pine Script Technicals (5-Min Confirmed)</div>
+      <div id="dt-indicators" class="grid g4"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Aligned Option Strikes</div>
+      <div style="overflow-x:auto">
+        <table class="tbl" id="dt-strikes-tbl">
+          <thead><tr>
+            <th>Strike</th><th>Tag</th><th>Premium</th><th>Lots</th>
+            <th>Target 1</th><th>Target 2</th><th>Stop Loss</th>
+          </tr></thead>
+          <tbody id="dt-strikes-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="panel-btst" class="panel">
   <div style="margin-bottom:12px">
     <div class="card">
@@ -781,7 +840,7 @@ async function apiFetch(url, method='GET', body=null) {
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
-const TABS = ['v3','btst','global','monitor','engine','journal','risk','usage'];
+const TABS = ['v3','btst','daytrading','global','monitor','engine','journal','risk','usage'];
 function switchTab(id) {
   TABS.forEach(t => {
     const p = g('panel-'+t);
@@ -798,8 +857,8 @@ function switchTab(id) {
 // ── Clock ─────────────────────────────────────────────────────────────────────
 function updateClock() {
   const now = new Date();
-  const ist = new Date(now.getTime() + (5.5 * 3600000) - (now.getTimezoneOffset() * 60000));
-  g('hdr-time').textContent = ist.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}) + ' IST';
+  const options = { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+  g('hdr-time').textContent = now.toLocaleTimeString('en-IN', options) + ' IST';
 }
 setInterval(updateClock, 1000);
 updateClock();
@@ -1129,6 +1188,83 @@ function renderGlobal(d) {
   if (g('gl-dn-ct'))  g('gl-dn-ct').textContent  = `${d.down_count}↓`;
 
   g('global-local-result').style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TAB — DAY TRADING (Pine Script Port)
+// ══════════════════════════════════════════════════════════════════════════════
+function dtLoadExpiries() { loadExpiries(sv('dt-sym'), sv('dt-type'), 'dt-expiry'); }
+
+async function runDayTrading() {
+  hideErr('dt-error');
+  setLoading('btn-dt', true);
+  g('dt-result').style.display = 'none';
+
+  const expiry = sv('dt-expiry');
+  if (!expiry) { showErr('dt-error', 'Select an expiry date.'); setLoading('btn-dt', false); return; }
+
+  try {
+    const d = await apiFetch('/api/strict/analyze', 'POST', {
+      symbol: sv('dt-sym'), expiry, option_type: sv('dt-type'), capital: fv('dt-cap'),
+    });
+    renderDayTrading(d);
+  } catch(e) { showErr('dt-error', e.message); }
+  finally { setLoading('btn-dt', false); }
+}
+
+function renderDayTrading(d) {
+  g('dt-sig').innerHTML   = sigBadge(d.signal);
+  
+  const confCls = d.confidence >= 100 ? 'pos' : d.confidence >= 60 ? 'neu' : 'neg';
+  g('dt-conf').innerHTML  = `<span class="${confCls}">${d.confidence}%</span>`;
+  g('dt-spot').textContent = fmtINR(d.indicators.price);
+  g('dt-lot').textContent  = d.lot_size || '—';
+
+  // Reasons / Breakdown
+  g('dt-reasons').innerHTML = (d.reasons || []).map(r => {
+    const isOk = r.includes('Conforming') || r.includes('met');
+    return `<span class="badge ${isOk ? 'badge-buy' : 'badge-hold'}" style="font-size:10px">${r}</span>`;
+  }).join('');
+
+  const ind = d.indicators || {};
+  const items = [
+    { name: 'EMA 9',         val: ind.ema9,     max: 1,   col: '#6366f1' },
+    { name: 'EMA 21',        val: ind.ema21,    max: 1,   col: '#a855f7' },
+    { name: 'VWAP',          val: ind.vwap,     max: 1,   col: '#3b82f6' },
+    { name: 'RSI (14)',      val: ind.rsi,      max: 100, col: ind.rsi > 60 ? '#22c55e' : ind.rsi < 40 ? '#ef4444' : '#f59e0b' },
+    { name: 'Vol / Avg (1.5x)', val: (ind.volume/ind.avg_volume).toFixed(2), max: 3, col: (ind.volume/ind.avg_volume) >= 1.5 ? '#22c55e' : '#f59e0b' }
+  ];
+
+  g('dt-indicators').innerHTML = items.map(i => {
+    const pct = i.max === 1 ? 50 : Math.min(100, (Math.abs(i.val) / i.max) * 100);
+    return `
+      <div class="metric">
+        <div class="metric-label">${i.name}</div>
+        <div class="metric-value" style="font-size:14px">${i.val}</div>
+        <div class="bar-bg" style="margin-top:6px"><div class="bar-fill" style="width:${pct}%;background:${i.col}"></div></div>
+      </div>`;
+  }).join('');
+
+  const tbody = g('dt-strikes-body');
+  tbody.innerHTML = '';
+  if (d.strikes && d.strikes.length) {
+      d.strikes.forEach(s => {
+        tbody.innerHTML += `
+          <tr>
+            <td class="mono">₹${Number(s.strike).toLocaleString('en-IN')}</td>
+            <td><span class="badge ${s.tag==='ATM'?'badge-hold':'badge-wait'}">${s.tag}</span></td>
+            <td class="mono">${fmtINR(s.ltp)}</td>
+            <td class="dim">—</td>
+            <td class="pos mono">${fmtINR(s.ltp * 1.1)}</td>
+            <td class="pos mono">${fmtINR(s.ltp * 1.2)}</td>
+            <td class="neg mono">${fmtINR(s.ltp * 0.95)}</td>
+          </tr>`;
+      });
+  } else {
+      tbody.innerHTML = '<tr><td colspan="7" class="dim" style="text-align:center;padding:12px">Select expiry to see strikes</td></tr>';
+  }
+
+  g('dt-result').style.display = 'block';
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1467,6 +1603,7 @@ function renderJournal(d) {
 document.addEventListener('DOMContentLoaded', () => {
   v3LoadExpiries();
   btLoadExpiries();
+  dtLoadExpiries();
   glLoadExpiries();
   mnLoadExpiries();
   loadWorldMarkets();

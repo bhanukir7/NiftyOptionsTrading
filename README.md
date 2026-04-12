@@ -1,9 +1,22 @@
-# nifty_options_trading 🚀
 **Release Version 1.0** — *April 12, 2026, 02:29 AM IST*
+**Release Version 2.0** — *April 12, 2026, 06:49 AM IST*
+**Release Version 3.0** — *April 12, 2026, 08:02 AM IST*
+**Release Version 4.0** — *April 13, 2026, 01:05 AM IST*
+**Release Version 5.0** — *April 13, 2026, 03:10 AM IST* (The Conviction Engine)
 
-**Release Version 2.0** — *April 12, 2026, 06:49 AM IST* (Premium Dashboard Edition)
-**Release Version 3.0** — *April 12, 2026, 08:02 AM IST* (The Autonomous Command Center)
-**Release Version 4.0** — *April 13, 2026, 01:05 AM IST* (The Professional Audit Suite)
+---
+
+## 🎯 Version 5.0: The Conviction Engine
+
+This version focuses on high-conviction intraday execution, filtering out market noise using a multi-factor strict validation logic.
+
+### Key 5.0 Features:
+*   **Strict Intraday Signal Validator**: (via `strict_validator.py`) A new confluence engine that only triggers signals when **all 5 conditions** (Trend, VWAP Bias, RSI Momentum, Volume Spike, and Pullback) are met.
+*   **Confidence Scoring (0-100)**: Real-time weighted scoring for every setup. Trends (25%), VWAP (20%), RSI (20%), Pullback (20%), and Volume (15%).
+*   **ToxicJ3ster Day Trading Signals**: Ported the famous Pine Script logic (EMA 9/21 crossovers + Volume confirmations) directly into a dedicated dashboard panel.
+*   **Autonomous Engine Upgrade**: Refactored `main.py` and `trading_engine.py` to use the high-conviction strict validator for automated entries, significantly reducing false signals.
+*   **Expanded Watchlist**: The engine now tracks an expanded list of high-volume tickers: **NIFTY, CNXBAN, VEDLIM, MAZDOC, RELIND, and COCSHI**.
+*   **High-Precision UI**: Added confidence gauges and rule-breakdown badges to the dashboard. Fixed IST clock logic to ensure accurate timezone display regardless of local browser settings.
 
 ---
 
@@ -189,7 +202,8 @@ A detailed index of exactly what every Python file does within the `nifty_option
 - `analytics_monitor.py` : **Background Signal Scanner**. Used specifically for scraping continuous data from multi-timeframe analytical models.
 
 ### Core Calculation Logic Scripts
-- `rule_engine.py` : **Strict Execution Gatekeeper**. Enforces rigid discipline, time limits, position sizing, risk capital mapping, and trails active stops.
+- `strict_validator.py` : **Strict Execution Gatekeeper**. Enforces rigid 5-factor discipline (Trend, VWAP, RSI, Volume, Pullback) with weighted confidence scoring.
+- `rule_engine.py` : **Risk Management Layer**. Enforces daily loss limits, trade count caps, and trails active stops.
 - `options_engine.py` : **Dynamic Sizer & Fetcher**. Downloads dataframes directly from ICICI. Automatically unzips and parses the official SecurityMaster text files daily to calculate exact operational lot sizes.
 - `theta_defense.py` : **DTE Protection Script**. Identifies Options contract validity to protect the trader from bleeding Time/Theta decay.
 - `max_pain.py` : **Max Pain Calculator**. Extrapolates aggregate Open Interest data to estimate the expiration "pain" threshold for option sellers.
