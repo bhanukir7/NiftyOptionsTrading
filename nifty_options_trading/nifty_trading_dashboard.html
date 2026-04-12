@@ -701,14 +701,17 @@ async function apiFetch(url, method='GET', body=null) {
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
-const TABS = ['v3','btst','global','monitor','risk','usage'];
+const TABS = ['v3','btst','global','monitor','engine','risk','usage'];
 function switchTab(id) {
   TABS.forEach(t => {
-    g('panel-'+t).classList.toggle('active', t===id);
-    g('tab-'+t).classList.toggle('active', t===id);
+    const p = g('panel-'+t);
+    const bt = g('tab-'+t);
+    if (p) p.classList.toggle('active', t===id);
+    if (bt) bt.classList.toggle('active', t===id);
   });
   if (id === 'usage') loadUsage();
   if (id === 'global') loadWorldMarkets();
+  if (id === 'engine') refreshEngineStatus();
 }
 
 // ── Clock ─────────────────────────────────────────────────────────────────────
