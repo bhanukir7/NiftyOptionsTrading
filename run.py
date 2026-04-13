@@ -37,9 +37,14 @@ def check_setup():
         print("-" * 50)
 
     # 3. Check for SecurityMaster
-    if not (REPO_ROOT / "SecurityMaster.zip").exists():
-        print(f"  [!] WARNING: SecurityMaster.zip not found!")
-        print(f"      This is required for dynamic lot sizes. Please download it from ICICI Breeze.")
+    today_str = datetime.now().strftime("%Y%m%d")
+    txt_path = LOGS_DIR / f"FONSEScripMaster_{today_str}.txt"
+    zip_path = REPO_ROOT / "SecurityMaster.zip"
+    
+    if not txt_path.exists() and not zip_path.exists():
+        print(f"  [!] NOTICE: SecurityMaster.zip not found.")
+        print(f"      No worries—the Dashboard will try to download the latest F&O Master")
+        print(f"      automatically when you start analyzing live contracts.")
         print("-" * 50)
 
 def main():

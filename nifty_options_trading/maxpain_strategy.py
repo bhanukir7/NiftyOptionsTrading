@@ -28,8 +28,12 @@ class MaxPainStrategy:
         Input Format (oi_chain): List of { "strike": float, "call_oi": float, "put_oi": float, 
                                           "call_oi_change": float, "put_oi_change": float }
         """
-        if not oi_chain or spot_price <= 0 or max_pain <= 0:
-            return self._no_trade("Insufficient data for analysis")
+        if not oi_chain:
+            return self._no_trade("Insufficient data: OI Chain is empty.")
+        if spot_price <= 0:
+            return self._no_trade("Insufficient data: Spot price not available or invalid.")
+        if max_pain <= 0:
+            return self._no_trade("Insufficient data: Max Pain calculation returned zero.")
 
         df = pd.DataFrame(oi_chain)
         
@@ -40,12 +44,17 @@ class MaxPainStrategy:
         resistance = top_calls['strike'].iloc[-1] # Highest major call wall
         support = top_puts['strike'].iloc[0]      # Lowest major put wall
         
-        # 2. Basic Distance Rules
+        # 2. Adaptive Distance Rules (Percentage-based for compatibility with Stocks vs Indices)
         dist_from_max_pain = spot_price - max_pain
         
-        # Rule: NO TRADE if price within ±50 of max pain (Too close to target)
-        if abs(dist_from_max_pain) < 50:
-            return self._no_trade("Price is within noise zone of Max Pain (±50 pts)")
+        # Thresholds defined as percentages of spot (e.g., 0.25% for noise, 0.4% for signal)
+        noise_threshold = max(5.0, spot_price * 0.0025) 
+        trigger_threshold = max(8.0, spot_price * 0.004)
+        wall_distance_limit = max(10.0, spot_price * 0.005)
+
+        # Rule: NO TRADE if price within noise zone of max pain
+        if abs(dist_from_max_pain) < noise_threshold:
+            return self._no_trade(f"Price ({spot_price:.0f}) is within the noise zone of Max Pain (±{noise_threshold:.1f} pts).")
 
         # 3. Detect Unwinding (Negative OI Change at walls)
         is_call_unwinding = any(top_calls['call_oi_change'] < 0)
@@ -53,29 +62,34 @@ class MaxPainStrategy:
 
         signal = "NO_TRADE"
         reason = ""
-        confidence = 0
         
         # ── BUY_PE LOGIC (Mean Reversion Down to Max Pain) ──────────────────
         # Conditions: Price significantly above Max Pain and near resistance
-        if dist_from_max_pain >= 80:
-            near_resistance = (resistance - spot_price) <= 100
+        if dist_from_max_pain >= trigger_threshold:
+            dist_to_res = resistance - spot_price
+            near_resistance = dist_to_res <= wall_distance_limit
             if near_resistance:
                 if not is_call_unwinding:
                     signal = "BUY_PE"
-                    reason = f"Price ({spot_price:.0f}) is {dist_from_max_pain:.0f} pts above Max Pain ({max_pain:.0f}) and near Resistance ({resistance:.0f})."
+                    reason = f"Price ({spot_price:.0f}) is {dist_from_max_pain:.1f} pts above Max Pain ({max_pain:.0f}) and near Resistance ({resistance:.0f})."
                 else:
                     reason = f"Resistance wall at {resistance} is unwinding. Avoiding PE."
+            else:
+                reason = f"Price is above Max Pain but too far ({dist_to_res:.1f}) from Resistance wall ({resistance:.0f})."
 
         # ── BUY_CE LOGIC (Mean Reversion Up to Max Pain) ────────────────────
         # Conditions: Price significantly below Max Pain and near support
-        elif dist_from_max_pain <= -80:
-            near_support = (spot_price - support) <= 100
+        elif dist_from_max_pain <= -trigger_threshold:
+            dist_to_supp = spot_price - support
+            near_support = dist_to_supp <= wall_distance_limit
             if near_support:
                 if not is_put_unwinding:
                     signal = "BUY_CE"
-                    reason = f"Price ({spot_price:.0f}) is {abs(dist_from_max_pain):.0f} pts below Max Pain ({max_pain:.0f}) and near Support ({support:.0f})."
+                    reason = f"Price ({spot_price:.0f}) is {abs(dist_from_max_pain):.1f} pts below Max Pain ({max_pain:.0f}) and near Support ({support:.0f})."
                 else:
                     reason = f"Support wall at {support} is unwinding. Avoiding CE."
+            else:
+                reason = f"Price is below Max Pain but too far ({dist_to_supp:.1f}) from Support wall ({support:.0f})."
 
         if signal == "NO_TRADE":
             return self._no_trade(reason or "No clear OI mean-reversion setup detected.")

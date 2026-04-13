@@ -7,6 +7,7 @@ and execution (Paper vs Live).
 
 Author: Aditya Kota
 """
+import os
 import time
 import threading
 import logging
@@ -31,7 +32,7 @@ class AutonomousEngine:
     """
     The central brain of the dashboard that runs the background trading loop.
     """
-    def __init__(self, breeze: SafeBreeze):
+    def __init__(self, breeze: SafeBreeze, stock_codes: Optional[List[str]] = None):
         self.breeze = breeze
         self.state = StateManager()
         self.config = Config()
@@ -41,7 +42,17 @@ class AutonomousEngine:
         self._is_running = False
         self._thread = None
         self.logs = deque(maxlen=50) # Keep last 50 log entries for the UI
-        self.stock_codes = ["NIFTY", "CNXBAN"] # Supported instruments
+
+        # Resolve stock codes: Argument > Environment > Defaults
+        if stock_codes:
+            self.stock_codes = [s.upper() for s in stock_codes]
+        else:
+            env_stocks = os.getenv("STOCK_CODES")
+            if env_stocks:
+                self.stock_codes = [s.strip().upper() for s in env_stocks.split(",") if s.strip()]
+            else:
+                self.stock_codes = ["NIFTY", "CNXBAN"] # Default fallback
+                
         self.exchange = "NSE"
         self.last_signal = {"timestamp": None, "signal": "NONE", "reason": "System Idle"}
         

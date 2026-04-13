@@ -88,6 +88,8 @@ API_KEY       = os.getenv("API_KEY", "")
 API_SECRET    = os.getenv("API_SECRET", "")
 SESSION_TOKEN = os.getenv("SESSION_TOKEN", "")
 AVAILABLE_FUNDS = float(os.getenv("AVAILABLE_FUNDS", "50000"))
+STOCK_CODES_STR = os.getenv("STOCK_CODES", "NIFTY,CNXBAN,VEDLIM,MAZDOC,RELIND,COCSHI")
+STOCK_CODES     = [s.strip().upper() for s in STOCK_CODES_STR.split(",") if s.strip()]
 API_USAGE_PATH = parent_dir / "logs" / "api_usage.json"
 
 app = FastAPI(title="Nifty Options Trading Suite", version="2.0.0")
@@ -95,6 +97,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 _executor = ThreadPoolExecutor(max_workers=4)
 _engine: Optional[AutonomousEngine] = None
+_breeze_instance: Optional[SafeBreeze] = None
 
 # ── HTML Dashboard ────────────────────────────────────────────────────────────
 DASHBOARD_PATH = current_dir / "nifty_trading_dashboard.html"
@@ -111,16 +114,28 @@ class EngineModeRequest(BaseModel):
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup_event():
-    global _engine
+    global _engine, _breeze_instance
+    print("[app.py] Initializing dashboard services...")
     try:
-        breeze = SafeBreeze(api_key=API_KEY)
-        breeze.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
-        _engine = AutonomousEngine(breeze)
-        # Pre-warm Security Master
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(_executor, lambda: get_expiries("NIFTY", "CE"))
+        if not API_KEY or not SESSION_TOKEN:
+            print("  [!] Skip engine startup: API_KEY or SESSION_TOKEN missing in .env")
+            return
+
+        _breeze_instance = SafeBreeze(api_key=API_KEY)
+        _breeze_instance.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
+        
+        _engine = AutonomousEngine(_breeze_instance, stock_codes=STOCK_CODES)
+        # Pre-warm Security Master - Wrapped in child try to avoid total crash if zip missing
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(_executor, lambda: get_expiries("NIFTY", "CE"))
+            print("  [+] Trading Engine and Security Master initialized.")
+        except Exception as se:
+            print(f"  [!] Security Master warning: {se}")
+            
     except Exception as e:
-        print(f"FAILED TO START ENGINE: {e}")
+        print(f"  [!] ENGINE STARTUP FAILED: {e}")
+        print("  [i] Dashboard UI will still be accessible (Trade Journal, etc.)")
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -130,11 +145,16 @@ def shutdown_event():
 
 # ── Helper: get authenticated Breeze instance ─────────────────────────────────
 def _get_breeze() -> SafeBreeze:
+    global _breeze_instance
+    if _breeze_instance:
+        return _breeze_instance
+        
     if not API_KEY:
         raise HTTPException(status_code=400, detail="API_KEY missing from .env")
-    breeze = SafeBreeze(api_key=API_KEY)
-    breeze.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
-    return breeze
+    
+    _breeze_instance = SafeBreeze(api_key=API_KEY)
+    _breeze_instance.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
+    return _breeze_instance
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -660,10 +680,11 @@ def _run_monitor(req: MonitorRequest) -> dict:
     theta    = evaluate_theta_risk(dte, threshold=2)
 
     # Build strike-level OI summary for the mini chart
-    calls = chain_df[chain_df["right"].str.upper().isin(["CALL", "CE"])][["strike_price", "open_interest"]].copy()
-    puts  = chain_df[chain_df["right"].str.upper().isin(["PUT", "PE"])][["strike_price", "open_interest"]].copy()
-    calls.columns = ["strike", "call_oi"]
-    puts.columns  = ["strike", "put_oi"]
+    # Extracting change_in_oi for better strategy detection
+    calls = chain_df[chain_df["right"].str.upper().isin(["CALL", "CE"])][["strike_price", "open_interest", "change_in_oi"]].copy()
+    puts  = chain_df[chain_df["right"].str.upper().isin(["PUT", "PE"])][["strike_price", "open_interest", "change_in_oi"]].copy()
+    calls.columns = ["strike", "call_oi", "call_oi_change"]
+    puts.columns  = ["strike", "put_oi", "put_oi_change"]
     merged = pd.merge(calls, puts, on="strike", how="outer").fillna(0)
     merged = merged.sort_values("strike")
 
@@ -683,19 +704,49 @@ def _run_monitor(req: MonitorRequest) -> dict:
     # AI Strategy Analysis
     from nifty_options_trading.maxpain_strategy import MaxPainStrategy
     strat = MaxPainStrategy()
+    
+    # Attempt to extract OI change if available in chain_df
+    # Inmerged, we already merged calls and puts. We need call_oi_change and put_oi_change.
+    # We should merge the change columns too if they exist.
+    
     oi_data_for_strat = [
         {
             "strike": float(row["strike"]),
             "call_oi": float(row["call_oi"]),
             "put_oi": float(row["put_oi"]),
-            "call_oi_change": 0, # Note: simplified for one-shot snapshot
-            "put_oi_change": 0
+            "call_oi_change": float(row.get("call_oi_change", 0)),
+            "put_oi_change": float(row.get("put_oi_change", 0))
         }
         for _, row in merged.iterrows()
     ]
+    
+    # 2. Fetch Actual Underlying Spot Price (Corrected: using NSE cash price)
+    # We use 1-minute historical data to get the latest spot close price.
+    spot_price = 0.0
+    try:
+        now_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        start_iso = datetime.now().strftime("%Y-%m-%dT00:00:00.000Z")
+        hist = breeze.get_historical_data(
+            interval="1minute",
+            from_date=start_iso,
+            to_date=now_iso,
+            stock_code=stock_code,
+            exchange_code="NSE",
+            product_type="cash"
+        )
+        if hist and hist.get("Status") == 200 and hist.get("Success"):
+            spot_price = float(hist["Success"][-1]["close"])
+        else:
+            # Fallback to chain LTP if historical data fails (less accurate)
+            spot_price = float(chain_df.iloc[0].get("last_traded_price", 
+                               chain_df.iloc[0].get("ltp", 0)))
+    except Exception as e:
+        print(f"Error fetching spot price for monitor: {e}")
+        spot_price = float(chain_df.iloc[0].get("last_traded_price", 0))
+
     # We use a neutral bias for the one-shot monitor unless we track it
     ai_strategy = strat.generate_signal(
-        spot_price=float(chain_df.iloc[0]["ltp"] if "ltp" in chain_df.columns else 0),
+        spot_price=spot_price,
         oi_chain=oi_data_for_strat,
         max_pain=float(max_pain),
         global_bias="NONE",

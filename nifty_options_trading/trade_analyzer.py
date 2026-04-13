@@ -53,102 +53,200 @@ def parse_fno_trade_book(csv_path: str, from_date: Optional[str] = None, to_date
                 "top_symbols": [], "worst_symbols": [], "recent_trades": [], "message": "No trades found in this date range."
             }
 
-        # 3. Aggregation by Contract Descriptor
-        contracts = {}
+        # 3. FIFO Aggregation by Contract Descriptor
+        from collections import deque
+        from collections import defaultdict
+        
+        # We track state per contract
+        queues = {} 
+        realized_pnl = {}
+        total_charges = {}
+        contract_info = {} # symbol, last_date
+        
+        # Daily Performance Tracking
+        daily_map = defaultdict(lambda: {"buy": 0.0, "sell": 0.0, "pnl": 0.0, "charges": 0.0, "open_cost_eod": 0.0})
+        running_open_cost = 0.0
+        
         for _, row in df.iterrows():
             desc = row['Contract Descriptor']
-            if desc not in contracts:
-                contracts[desc] = {
+            dt_str = row['Trade Date']
+            
+            if desc not in queues:
+                queues[desc] = deque()
+                realized_pnl[desc] = 0.0
+                total_charges[desc] = 0.0
+                contract_info[desc] = {
                     "symbol": _extract_symbol(desc),
-                    "total_buy_val": 0.0,
-                    "total_sell_val": 0.0,
-                    "total_buy_qty": 0.0,
-                    "total_sell_qty": 0.0,
-                    "total_charges": 0.0,
-                    "last_date": row['Trade Date']
+                    "last_date": dt_str
                 }
             
             action = str(row['Action']).upper()
             qty    = float(row['Qty'])
+            price  = float(row['Price'])
             val    = float(row['Value'])
             chgs   = float(row['Total Charges'] if 'Total Charges' in row else 0)
             
-            if "BUY" in action:
-                contracts[desc]["total_buy_val"] += val
-                contracts[desc]["total_buy_qty"] += qty
-            elif "SELL" in action:
-                contracts[desc]["total_sell_val"] += val
-                contracts[desc]["total_sell_qty"] += qty
+            total_charges[desc] += chgs
+            daily_map[dt_str]["charges"] += chgs
             
-            contracts[desc]["total_charges"] += chgs
+            if "BUY" in action:
+                daily_map[dt_str]["buy"] += val
+                running_open_cost += val
+                
+                # If we have short positions (negative qty in queue), cover them first
+                remaining_buy = qty
+                while remaining_buy > 0 and queues[desc] and queues[desc][0][0] < 0:
+                    oldest_short = queues[desc][0]
+                    short_qty = abs(oldest_short[0])
+                    match_qty = min(remaining_buy, short_qty)
+                    
+                    # PnL for short: (Sell Price [oldest_short[1]] - Buy Price [price]) * match_qty
+                    trade_pnl = match_qty * (oldest_short[1] - price)
+                    realized_pnl[desc] += trade_pnl
+                    daily_map[dt_str]["pnl"] += trade_pnl
+                    
+                    remaining_buy -= match_qty
+                    oldest_short[0] += match_qty
+                    if oldest_short[0] >= 0:
+                        queues[desc].popleft()
+                
+                if remaining_buy > 0:
+                    queues[desc].append([remaining_buy, price])
+                
+                # Update running open cost specifically for Long positions
+                temp_cost = 0
+                for d_desc in queues:
+                    temp_cost += sum(item[0] * item[1] for item in queues[d_desc] if item[0] > 0)
+                running_open_cost = temp_cost
+
+            elif "SELL" in action:
+                daily_map[dt_str]["sell"] += val
+                
+                # If we have long positions (positive qty in queue), close them first
+                remaining_sell = qty
+                while remaining_sell > 0 and queues[desc] and queues[desc][0][0] > 0:
+                    oldest_long = queues[desc][0]
+                    match_qty = min(remaining_sell, oldest_long[0])
+                    
+                    # PnL for long: (Sell Price [price] - Buy Price [oldest_long[1]]) * match_qty
+                    trade_pnl = match_qty * (price - oldest_long[1])
+                    realized_pnl[desc] += trade_pnl
+                    daily_map[dt_str]["pnl"] += trade_pnl
+                    
+                    remaining_sell -= match_qty
+                    oldest_long[0] -= match_qty
+                    if oldest_long[0] <= 0:
+                        queues[desc].popleft()
+                
+                if remaining_sell > 0:
+                    queues[desc].append([-remaining_sell, price])
+                
+                # Recalculate deployed capital
+                temp_cost = 0
+                for d_desc in queues:
+                    temp_cost += sum(item[0] * item[1] for item in queues[d_desc] if item[0] > 0)
+                running_open_cost = temp_cost
+
+            daily_map[dt_str]["open_cost_eod"] = running_open_cost
 
         # 4. Symbol Hierarchy and Grouping
         symbol_map = {}
-        total_realized_pnl = 0.0
-        total_realized_charges = 0.0
+        total_pnl_accumulator = 0.0
+        total_charges_accumulator = 0.0
         wins = 0
         losses = 0
         active_count = 0
         
         recent_trades = []
 
-        for desc, data in contracts.items():
-            is_closed = (data["total_buy_qty"] == data["total_sell_qty"]) and (data["total_buy_qty"] > 0)
-            gross_pnl = data["total_sell_val"] - data["total_buy_val"]
-            net_pnl   = gross_pnl - data["total_charges"]
+        for desc, queue in queues.items():
+            info = contract_info[desc]
+            
+            open_qty = sum(item[0] for item in queue)
+            open_cost = sum(item[0] * item[1] for item in queue if item[0] > 0) # Only positive qty has "cost"
+            
+            is_closed = (abs(open_qty) < 1e-5) # Account for float precision
+            net_pnl = realized_pnl[desc] - total_charges[desc]
             
             trade_item = {
                 "contract": desc,
                 "net_pnl": round(net_pnl, 2),
                 "is_closed": is_closed,
-                "date": data["last_date"]
+                "date": info["last_date"],
+                "open_qty": round(open_qty, 2),
+                "open_cost": round(open_cost, 2)
             }
-            recent_trades.append({**trade_item, "symbol": data["symbol"]})
+            recent_trades.append({**trade_item, "symbol": info["symbol"]})
 
-            sym = data["symbol"]
+            sym = info["symbol"]
             if sym not in symbol_map:
-                symbol_map[sym] = {"net_pnl": 0.0, "trades": 0, "contracts": []}
+                symbol_map[sym] = {"net_pnl": 0.0, "trades": 0, "contracts": [], "open_cost": 0.0}
+            
+            symbol_map[sym]["open_cost"] += open_cost
             
             if is_closed:
                 symbol_map[sym]["net_pnl"] += net_pnl
                 symbol_map[sym]["trades"] += 1
                 symbol_map[sym]["contracts"].append(trade_item)
                 
-                total_realized_pnl += net_pnl
-                total_realized_charges += data["total_charges"]
+                total_pnl_accumulator += net_pnl
+                total_charges_accumulator += total_charges[desc]
                 if net_pnl > 0: wins += 1
                 elif net_pnl < 0: losses += 1
             else:
                 active_count += 1
+                # Even for open positions, we show them in the symbol drill-down
+                symbol_map[sym]["contracts"].append(trade_item)
 
-        # 5. Split into Profit and Loss symbols (No Overlap)
+        # 5. Split into Profit and Loss symbols
         profit_symbols = []
         loss_symbols = []
         
         for sym, d in symbol_map.items():
-            entry = {"symbol": sym, "net_pnl": round(d["net_pnl"], 2), "trades": d["trades"], "contracts": d["contracts"]}
-            if d["net_pnl"] > 0:
+            entry = {
+                "symbol": sym, 
+                "net_pnl": round(d["net_pnl"], 2), 
+                "trades": d["trades"], 
+                "contracts": d["contracts"],
+                "open_cost": round(d["open_cost"], 2)
+            }
+            if d["net_pnl"] >= 0:
                 profit_symbols.append(entry)
-            elif d["net_pnl"] < 0:
+            else:
                 loss_symbols.append(entry)
         
         profit_symbols = sorted(profit_symbols, key=lambda x: x["net_pnl"], reverse=True)
-        loss_symbols = sorted(loss_symbols, key=lambda x: x["net_pnl"]) # Most loss first
+        loss_symbols = sorted(loss_symbols, key=lambda x: x["net_pnl"]) 
 
         total_trades = wins + losses
         win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
         
+        # 6. Prepare Daily Performance List
+        daily_perf = []
+        for dt, stats in daily_map.items():
+            daily_perf.append({
+                "date": dt,
+                "buy": round(stats["buy"], 2),
+                "sell": round(stats["sell"], 2),
+                "trade_value": round(stats["buy"] + stats["sell"], 2),
+                "net_pnl": round(stats["pnl"] - stats["charges"], 2),
+                "open_cost": round(stats["open_cost_eod"], 2)
+            })
+        daily_perf = sorted(daily_perf, key=lambda x: _parse_date(x["date"]), reverse=True)
+
         return {
             "summary": {
-                "net_pnl": round(total_realized_pnl, 2),
-                "total_charges": round(total_realized_charges, 2),
+                "net_pnl": round(total_pnl_accumulator, 2),
+                "total_charges": round(total_charges_accumulator, 2),
                 "win_rate": round(win_rate, 1),
                 "total_closed_trades": total_trades,
-                "active_contracts": active_count
+                "active_contracts": active_count,
+                "total_open_cost": round(sum(d["open_cost"] for d in symbol_map.values()), 2)
             },
-            "top_symbols": profit_symbols[:10],    # Showing more now that it's categorized
-            "worst_symbols": loss_symbols[:10],
-            "recent_trades": sorted(recent_trades, key=lambda x: _parse_date(x["date"]), reverse=True)[:10]
+            "top_symbols": profit_symbols[:20],
+            "worst_symbols": loss_symbols[:20],
+            "recent_trades": sorted(recent_trades, key=lambda x: _parse_date(x["date"]), reverse=True)[:20],
+            "daily_performance": daily_perf
         }
 
     except Exception as e:

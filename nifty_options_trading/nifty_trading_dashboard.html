@@ -761,38 +761,58 @@
         <button class="btn btn-sm" onclick="loadJournal()" style="margin:0">Refresh ↺</button>
       </div>
     </div>
-    <div class="grid g5">
+    <div class="grid g6">
       <div class="metric"><div class="metric-label">Net Overall PnL</div><div id="jr-pnl" class="metric-value">—</div></div>
       <div class="metric"><div class="metric-label">Win Rate</div><div id="jr-wr" class="metric-value">—</div></div>
       <div class="metric"><div class="metric-label">Closed Trades</div><div id="jr-tt" class="metric-value">—</div></div>
       <div class="metric"><div class="metric-label">Total Charges</div><div id="jr-chg" class="metric-value neg">—</div></div>
       <div class="metric"><div class="metric-label">Active Pos</div><div id="jr-act" class="metric-value">—</div></div>
+      <div class="metric"><div class="metric-label">Total Open Cost</div><div id="jr-open-cost" class="metric-value pos">—</div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title">Daily Performance Journey (Day-wise Breakdown)</div>
+    <div style="overflow-x:auto; max-height:400px">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Trade Value</th>
+            <th>Buy</th>
+            <th>Sell</th>
+            <th style="text-align:right">Open Cost (EOD)</th>
+            <th style="text-align:right">Profit / Loss</th>
+          </tr>
+        </thead>
+        <tbody id="jr-daily"></tbody>
+      </table>
     </div>
   </div>
 
   <div class="grid g2" style="margin-bottom:12px">
     <div class="card">
-      <div class="card-title">Top 5 Profitable Symbols</div>
+      <div class="card-title">Top 20 Profitable Symbols</div>
       <table class="tbl">
-        <thead><tr><th>Symbol</th><th>PnL</th><th>Trades</th></tr></thead>
+        <thead><tr><th>Symbol</th><th>PnL</th><th>Trades</th><th style="text-align:right">Open Cost</th></tr></thead>
         <tbody id="jr-top"></tbody>
       </table>
     </div>
     <div class="card">
-      <div class="card-title">Bottom / Loss Symbols</div>
+      <div class="card-title">Worst / Loss Symbols</div>
       <table class="tbl">
-        <thead><tr><th>Symbol</th><th>PnL</th><th>Trades</th></tr></thead>
+        <thead><tr><th>Symbol</th><th>PnL</th><th>Trades</th><th style="text-align:right">Open Cost</th></tr></thead>
         <tbody id="jr-worst"></tbody>
       </table>
     </div>
   </div>
 
   <div class="card" style="margin-top:12px">
-    <div class="card-title">Recent Trades / Activity Snapshot</div>
+    <div class="card-title">Recent Activity Snapshot (FIFO Matched)</div>
     <div style="overflow-x:auto">
       <table class="tbl">
         <thead><tr>
-          <th>Date</th><th>Instrument / Contract</th><th>Net PnL</th><th>Status</th>
+          <th>Date</th><th>Instrument / Contract</th><th>Net PnL</th><th>Cost/Value</th><th>Status</th>
         </tr></thead>
         <tbody id="jr-recent"></tbody>
       </table>
@@ -1398,6 +1418,114 @@ function renderRisk(d) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+//  TAB 7 — TRADE JOURNAL (FIFO REFACTOR)
+// ══════════════════════════════════════════════════════════════════════════════
+
+function resetJournalUI(msg = null) {
+  const blank = '—';
+  g('jr-pnl').textContent = blank;
+  g('jr-pnl').className   = 'metric-value';
+  g('jr-wr').textContent  = blank;
+  g('jr-tt').textContent  = blank;
+  g('jr-chg').textContent = blank;
+  g('jr-act').textContent = blank;
+  g('jr-open-cost').textContent = blank;
+
+  const errRow = `<tr><td colspan="6" class="dim" style="text-align:center;padding:20px">${msg || 'No trades found'}</td></tr>`;
+  g('jr-top').innerHTML = errRow;
+  g('jr-worst').innerHTML = errRow;
+  g('jr-recent').innerHTML = errRow;
+  g('jr-daily').innerHTML = errRow;
+}
+
+function toggleJrDrill(id) {
+  const el = g('drill-' + id);
+  if (el) el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
+}
+
+function renderJournal(d) {
+  if (!d || d.error) {
+    resetJournalUI(d ? d.error : "Failed to load journal");
+    return;
+  }
+  const s = d.summary || {};
+  
+  g('jr-pnl').textContent = fmtINR(s.net_pnl);
+  g('jr-pnl').className   = s.net_pnl >= 0 ? 'metric-value pos' : 'metric-value neg';
+  g('jr-wr').textContent  = (s.win_rate || 0) + '%';
+  g('jr-tt').textContent  = s.total_closed_trades || 0;
+  g('jr-chg').textContent = fmtINR(s.total_charges || 0);
+  g('jr-act').textContent = s.active_contracts || 0;
+  g('jr-open-cost').textContent = fmtINR(s.total_open_cost || 0);
+
+  // Tables with Drill-down
+  const renderSymbols = (list, elId) => {
+    if (!list || !list.length) {
+      g(elId).innerHTML = '<tr><td colspan="4" class="dim" style="text-align:center;padding:10px">None found in range</td></tr>';
+      return;
+    }
+    g(elId).innerHTML = (list || []).map((x, idx) => `
+      <tr style="cursor:pointer" onclick="toggleJrDrill('${elId}-${idx}')">
+        <td class="mono" style="font-weight:600">📂 ${x.symbol}</td>
+        <td class="${x.net_pnl >= 0 ? 'pos' : 'neg'} mono">${fmtINR(x.net_pnl)}</td>
+        <td class="dim">${x.trades} <span style="font-size:9px">▼</span></td>
+        <td class="pos mono" style="text-align:right">${x.open_cost > 0 ? fmtINR(x.open_cost) : '—'}</td>
+      </tr>
+      <tr id="drill-${elId}-${idx}" style="display:none; background:rgba(255,255,255,.01)">
+        <td colspan="4" style="padding:0">
+          <div style="padding:8px 10px 8px 30px; border-left:2px solid var(--border); margin:4px 0">
+            <table style="width:100%; font-size:10px; border-collapse:collapse">
+              ${x.contracts.map(c => `
+                <tr style="border-bottom:1px solid rgba(255,255,255,.03)">
+                  <td class="dim mono" style="padding:4px 0">${c.contract}</td>
+                  <td class="${c.net_pnl >= 0 ? 'pos' : 'neg'} mono" style="text-align:right; padding:4px 0">${fmtINR(c.net_pnl)}</td>
+                </tr>
+              `).join('')}
+            </table>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  };
+
+  renderSymbols(d.top_symbols, 'jr-top');
+  renderSymbols(d.worst_symbols, 'jr-worst');
+
+  g('jr-recent').innerHTML = (d.recent_trades || []).map(t => `
+    <tr>
+      <td class="dim">${t.date}</td>
+      <td class="mono" title="${t.contract}">${t.symbol} <span style="font-size:9px;opacity:.5">${t.contract.split('-').slice(2,5).join(' ')}</span></td>
+      <td class="${t.net_pnl >= 0 ? 'pos' : 'neg'} mono">${fmtINR(t.net_pnl)}</td>
+      <td class="pos mono">${t.open_cost > 0 ? fmtINR(t.open_cost) : '—'}</td>
+      <td><span class="badge ${t.is_closed ? 'badge-hold' : 'badge-buy'}">${t.is_closed ? 'CLOSED' : 'OPEN'}</span></td>
+    </tr>
+  `).join('');
+
+  g('jr-daily').innerHTML = (d.daily_performance || []).map(day => `
+    <tr>
+      <td class="dim mono">${day.date}</td>
+      <td class="mono">${fmtINR(day.trade_value)}</td>
+      <td class="dim">${fmtINR(day.buy)}</td>
+      <td class="dim">${fmtINR(day.sell)}</td>
+      <td class="pos mono" style="text-align:right">${day.open_cost > 0 ? fmtINR(day.open_cost) : '—'}</td>
+      <td class="${day.net_pnl >= 0 ? 'pos' : 'neg'} mono" style="text-align:right">${fmtINR(day.net_pnl)}</td>
+    </tr>
+  `).join('');
+}
+async function loadJournal() {
+  try {
+    const from = g('jr-from').value;
+    const to = g('jr-to').value;
+    const url = `/api/trades/analysis?start_date=${from}&end_date=${to}`;
+    const d = await apiFetch(url);
+    renderJournal(d);
+  } catch(e) { 
+    console.error("Journal load failed:", e); 
+    resetJournalUI(e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 //  TAB 6 — API USAGE
 // ══════════════════════════════════════════════════════════════════════════════
 async function loadUsage() {
@@ -1527,76 +1655,6 @@ function sigBadge(sig) {
   return `<span class="badge ${cls}">${sig}</span>`;
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  TAB 7 — TRADE JOURNAL
-// ══════════════════════════════════════════════════════════════════════════════
-async function loadJournal() {
-  try {
-    const from = g('jr-from').value;
-    const to = g('jr-to').value;
-    const url = `/api/trades/analysis?start_date=${from}&end_date=${to}`;
-    const d = await apiFetch(url);
-    renderJournal(d);
-  } catch(e) { console.error("Journal load failed:", e); }
-}
-
-function toggleJrDrill(id) {
-  const el = g('drill-' + id);
-  if (el) el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
-}
-
-function renderJournal(d) {
-  if (d.error) return;
-  const s = d.summary || {};
-  
-  g('jr-pnl').textContent = fmtINR(s.net_pnl);
-  g('jr-pnl').className   = s.net_pnl >= 0 ? 'metric-value pos' : 'metric-value neg';
-  g('jr-wr').textContent  = (s.win_rate || 0) + '%';
-  g('jr-tt').textContent  = s.total_closed_trades || 0;
-  g('jr-chg').textContent = fmtINR(s.total_charges || 0);
-  g('jr-act').textContent = s.active_contracts || 0;
-
-  // Tables with Drill-down
-  const renderSymbols = (list, elId) => {
-    if (!list || !list.length) {
-      g(elId).innerHTML = '<tr><td colspan="3" class="dim" style="text-align:center;padding:10px">None found in range</td></tr>';
-      return;
-    }
-    g(elId).innerHTML = (list || []).map((x, idx) => `
-      <tr style="cursor:pointer" onclick="toggleJrDrill('${elId}-${idx}')">
-        <td class="mono" style="font-weight:600">📂 ${x.symbol}</td>
-        <td class="${x.net_pnl >= 0 ? 'pos' : 'neg'} mono">${fmtINR(x.net_pnl)}</td>
-        <td class="dim" style="text-align:right">${x.trades} <span style="font-size:9px">▼</span></td>
-      </tr>
-      <tr id="drill-${elId}-${idx}" style="display:none; background:rgba(255,255,255,.01)">
-        <td colspan="3" style="padding:0">
-          <div style="padding:8px 10px 8px 30px; border-left:2px solid var(--border); margin:4px 0">
-            <table style="width:100%; font-size:10px; border-collapse:collapse">
-              ${x.contracts.map(c => `
-                <tr style="border-bottom:1px solid rgba(255,255,255,.03)">
-                  <td class="dim mono" style="padding:4px 0">${c.contract}</td>
-                  <td class="${c.net_pnl >= 0 ? 'pos' : 'neg'} mono" style="text-align:right; padding:4px 0">${fmtINR(c.net_pnl)}</td>
-                </tr>
-              `).join('')}
-            </table>
-          </div>
-        </td>
-      </tr>
-    `).join('');
-  };
-
-  renderSymbols(d.top_symbols, 'jr-top');
-  renderSymbols(d.worst_symbols, 'jr-worst');
-
-  g('jr-recent').innerHTML = (d.recent_trades || []).map(t => `
-    <tr>
-      <td class="dim">${t.date}</td>
-      <td class="mono" title="${t.contract}">${t.symbol} <span style="font-size:9px;opacity:.5">${t.contract.split('-').slice(2,5).join(' ')}</span></td>
-      <td class="${t.net_pnl >= 0 ? 'pos' : 'neg'} mono">${fmtINR(t.net_pnl)}</td>
-      <td><span class="badge ${t.is_closed ? 'badge-hold' : 'badge-buy'}">${t.is_closed ? 'CLOSED' : 'OPEN'}</span></td>
-    </tr>
-  `).join('');
-}
 
 
 // ── INIT ─────────────────────────────────────────────────────────────

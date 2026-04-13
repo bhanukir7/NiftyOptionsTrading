@@ -2,7 +2,25 @@
 **Release Version 2.0** — *April 12, 2026, 06:49 AM IST*
 **Release Version 3.0** — *April 12, 2026, 08:02 AM IST*
 **Release Version 4.0** — *April 13, 2026, 01:05 AM IST*
-**Release Version 5.0** — *April 13, 2026, 03:10 AM IST* (The Conviction Engine)
+**Release Version 5.0** — *April 13, 2026, 03:10 AM IST*
+**Release Version 6.0** — *April 14, 2026, 01:45 AM IST* (The Audit & FIFO Overhaul)
+
+---
+
+## 📈 Version 6.0: The Audit & FIFO Overhaul
+
+This version focuses on professional-grade trade auditing and dashboard stability, ensuring accurate PnL calculations regardless of trading complexity.
+
+### Key 6.0 Features:
+*   **High-Precision FIFO Engine**: Replaced basic aggregation with a `collections.deque` FIFO matching engine in `trade_analyzer.py`. This ensures 100% accurate Realized PnL and "Cost Basis" tracking for scaling in/out of positions.
+*   **Day-Wise Performance Journey**: A new chronological breakdown table in the dashboard showing **Daily Turnover (Buy/Sell Value)**, **Net Daily Realized PnL**, and **EOD Open Cost** (Cumulative Capital Deployed).
+*   **Fault-Tolerant Dashboard**: Refactored `app.py` startup to be resilient. The dashboard UI (including the Trade Journal) now remains 100% accessible even if your API session is expired or `SecurityMaster.zip` is temporarily missing.
+*   **Live Open Cost Tracking**: Integrated capital allocation metrics across the UI. See exactly how much cost basis is locked in your active "OPEN" symbols and contracts at a glance.
+*   **Dashboard Cleanup & Stability**: Removed over 400 lines of duplicated JavaScript logic. Implemented a robust "UI Reset" mechanism that clears stale data upon API failures (404/Empty states), ensuring you never make decisions based on cached results after deleting trade files.
+*   **Intelligent Launcher**: Updated `run.py` to support auto-downloading of the Security Master file via the core engine, removing it as a manual setup blocker for new users.
+*   **Max Pain Stock Fixes**: Corrected the Max Pain Monitor for equity stocks (**COCSHI**, **VEDLIM**, etc.). It now fetches the actual **NSE Cash Spot Price** via historical API calls instead of guessing from the option chain.
+*   **Adaptive Strategy Zone**: The AI Strategy logic now uses **percentage-based noise thresholds**, preventing "Insufficient Data" errors on low-priced stocks while maintaining accuracy for high-priced indices.
+*   **OI Change Detection**: Enhanced the snapshot engine to capture real-time **OI Change**, allowing the strategy to detect when institutional walls are unwinding.
 
 ---
 
