@@ -1494,7 +1494,7 @@ function renderJournal(d) {
   g('jr-recent').innerHTML = (d.recent_trades || []).map(t => `
     <tr>
       <td class="dim">${t.date}</td>
-      <td class="mono" title="${t.contract}">${t.symbol} <span style="font-size:9px;opacity:.5">${t.contract.split('-').slice(2,5).join(' ')}</span></td>
+      <td class="mono" style="font-weight:600; font-size:11px; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${t.contract}">${t.symbol}</td>
       <td class="${t.net_pnl >= 0 ? 'pos' : 'neg'} mono">${fmtINR(t.net_pnl)}</td>
       <td class="pos mono">${t.open_cost > 0 ? fmtINR(t.open_cost) : '—'}</td>
       <td><span class="badge ${t.is_closed ? 'badge-hold' : 'badge-buy'}">${t.is_closed ? 'CLOSED' : 'OPEN'}</span></td>

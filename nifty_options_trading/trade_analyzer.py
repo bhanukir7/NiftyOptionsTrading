@@ -76,7 +76,8 @@ def parse_fno_trade_book(csv_path: str, from_date: Optional[str] = None, to_date
                 realized_pnl[desc] = 0.0
                 total_charges[desc] = 0.0
                 contract_info[desc] = {
-                    "symbol": _extract_symbol(desc),
+                    "symbol": _extract_symbol(desc), # Full name (e.g. NIFTY-10-Apr-2026-24150-P-E-I)
+                    "group": desc.split('-')[1] if '-' in desc else desc, # Base asset (e.g. NIFTY) for potential grouping
                     "last_date": dt_str
                 }
             
@@ -253,9 +254,15 @@ def parse_fno_trade_book(csv_path: str, from_date: Optional[str] = None, to_date
         return {"error": f"Error parsing CSV: {str(e)}"}
 
 def _extract_symbol(descriptor: str) -> str:
-    parts = descriptor.split('-')
-    if len(parts) > 1: return parts[1]
-    return descriptor
+    """
+    Standardizes the contract name for accountability.
+    Removes 'OPT-' prefix but keeps full detail including expiry, strike, and product type (-I/-S).
+    Example: OPT-NIFTY-10-Apr-2026-24150-P-E-I -> NIFTY-10-Apr-2026-24150-P-E-I
+    """
+    d = str(descriptor).strip()
+    if d.startswith("OPT-"):
+        return d[4:]
+    return d
 
 def _parse_date(date_str: str) -> datetime:
     try: return datetime.strptime(date_str, "%d-%b-%Y")
