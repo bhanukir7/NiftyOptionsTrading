@@ -47,6 +47,13 @@ def parse_fno_trade_book(csv_path: str, from_date: Optional[str] = None, to_date
             max_dt = pd.to_datetime(to_date)
             df = df[df['dt_obj'] <= max_dt]
 
+        # 3. Chronological Sorting
+        # ICICI Breeze CSVs are typically Newest -> Oldest. 
+        # For FIFO to work, we MUST process from Oldest -> Newest.
+        # We flip first to make the internal day order chronological, then stable sort by date.
+        df = df.iloc[::-1].reset_index(drop=True)
+        df = df.sort_values(by='dt_obj', ascending=True, kind='stable')
+
         if df.empty:
             return {
                 "summary": {"net_pnl": 0, "total_charges": 0, "win_rate": 0, "total_closed_trades": 0, "active_contracts": 0},
@@ -64,7 +71,15 @@ def parse_fno_trade_book(csv_path: str, from_date: Optional[str] = None, to_date
         contract_info = {} # symbol, last_date
         
         # Daily Performance Tracking
-        daily_map = defaultdict(lambda: {"buy": 0.0, "sell": 0.0, "pnl": 0.0, "charges": 0.0, "open_cost_eod": 0.0})
+        daily_map = defaultdict(lambda: {
+            "buy": 0.0, 
+            "sell": 0.0, 
+            "pnl": 0.0, 
+            "intraday_pnl": 0.0, 
+            "btst_pnl": 0.0, 
+            "charges": 0.0, 
+            "open_cost_eod": 0.0
+        })
         running_open_cost = 0.0
         
         for _, row in df.iterrows():
@@ -76,8 +91,8 @@ def parse_fno_trade_book(csv_path: str, from_date: Optional[str] = None, to_date
                 realized_pnl[desc] = 0.0
                 total_charges[desc] = 0.0
                 contract_info[desc] = {
-                    "symbol": _extract_symbol(desc), # Full name (e.g. NIFTY-10-Apr-2026-24150-P-E-I)
-                    "group": desc.split('-')[1] if '-' in desc else desc, # Base asset (e.g. NIFTY) for potential grouping
+                    "symbol": _extract_symbol(desc), 
+                    "group": desc.split('-')[1] if '-' in desc else desc, 
                     "last_date": dt_str
                 }
             
@@ -92,19 +107,24 @@ def parse_fno_trade_book(csv_path: str, from_date: Optional[str] = None, to_date
             
             if "BUY" in action:
                 daily_map[dt_str]["buy"] += val
-                running_open_cost += val
                 
-                # If we have short positions (negative qty in queue), cover them first
+                # If we have short positions, cover them first
                 remaining_buy = qty
                 while remaining_buy > 0 and queues[desc] and queues[desc][0][0] < 0:
-                    oldest_short = queues[desc][0]
+                    oldest_short = queues[desc][0] # [qty, price, date]
                     short_qty = abs(oldest_short[0])
                     match_qty = min(remaining_buy, short_qty)
                     
-                    # PnL for short: (Sell Price [oldest_short[1]] - Buy Price [price]) * match_qty
+                    # PnL for short: (Sell Price - Buy Price) * match_qty
                     trade_pnl = match_qty * (oldest_short[1] - price)
                     realized_pnl[desc] += trade_pnl
                     daily_map[dt_str]["pnl"] += trade_pnl
+                    
+                    # Split logic: Was the short opened today?
+                    if oldest_short[2] == dt_str:
+                        daily_map[dt_str]["intraday_pnl"] += trade_pnl
+                    else:
+                        daily_map[dt_str]["btst_pnl"] += trade_pnl
                     
                     remaining_buy -= match_qty
                     oldest_short[0] += match_qty
@@ -112,7 +132,7 @@ def parse_fno_trade_book(csv_path: str, from_date: Optional[str] = None, to_date
                         queues[desc].popleft()
                 
                 if remaining_buy > 0:
-                    queues[desc].append([remaining_buy, price])
+                    queues[desc].append([remaining_buy, price, dt_str])
                 
                 # Update running open cost specifically for Long positions
                 temp_cost = 0
@@ -123,16 +143,22 @@ def parse_fno_trade_book(csv_path: str, from_date: Optional[str] = None, to_date
             elif "SELL" in action:
                 daily_map[dt_str]["sell"] += val
                 
-                # If we have long positions (positive qty in queue), close them first
+                # If we have long positions, close them first
                 remaining_sell = qty
                 while remaining_sell > 0 and queues[desc] and queues[desc][0][0] > 0:
-                    oldest_long = queues[desc][0]
+                    oldest_long = queues[desc][0] # [qty, price, date]
                     match_qty = min(remaining_sell, oldest_long[0])
                     
-                    # PnL for long: (Sell Price [price] - Buy Price [oldest_long[1]]) * match_qty
+                    # PnL for long: (Sell Price - Buy Price) * match_qty
                     trade_pnl = match_qty * (price - oldest_long[1])
                     realized_pnl[desc] += trade_pnl
                     daily_map[dt_str]["pnl"] += trade_pnl
+                    
+                    # Split logic: Was the long opened today?
+                    if oldest_long[2] == dt_str:
+                        daily_map[dt_str]["intraday_pnl"] += trade_pnl
+                    else:
+                        daily_map[dt_str]["btst_pnl"] += trade_pnl
                     
                     remaining_sell -= match_qty
                     oldest_long[0] -= match_qty
@@ -140,7 +166,7 @@ def parse_fno_trade_book(csv_path: str, from_date: Optional[str] = None, to_date
                         queues[desc].popleft()
                 
                 if remaining_sell > 0:
-                    queues[desc].append([-remaining_sell, price])
+                    queues[desc].append([-remaining_sell, price, dt_str])
                 
                 # Recalculate deployed capital
                 temp_cost = 0
@@ -231,6 +257,8 @@ def parse_fno_trade_book(csv_path: str, from_date: Optional[str] = None, to_date
                 "sell": round(stats["sell"], 2),
                 "trade_value": round(stats["buy"] + stats["sell"], 2),
                 "net_pnl": round(stats["pnl"] - stats["charges"], 2),
+                "intraday_pnl": round(stats["intraday_pnl"], 2),
+                "positional_pnl": round(stats["btst_pnl"], 2),
                 "open_cost": round(stats["open_cost_eod"], 2)
             })
         daily_perf = sorted(daily_perf, key=lambda x: _parse_date(x["date"]), reverse=True)

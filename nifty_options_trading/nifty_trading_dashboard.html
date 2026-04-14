@@ -782,7 +782,9 @@
             <th>Buy</th>
             <th>Sell</th>
             <th style="text-align:right">Open Cost (EOD)</th>
-            <th style="text-align:right">Profit / Loss</th>
+            <th style="text-align:right">Intraday PnL</th>
+            <th style="text-align:right">Positional PnL</th>
+            <th style="text-align:right">Total Net PnL</th>
           </tr>
         </thead>
         <tbody id="jr-daily"></tbody>
@@ -1508,7 +1510,9 @@ function renderJournal(d) {
       <td class="dim">${fmtINR(day.buy)}</td>
       <td class="dim">${fmtINR(day.sell)}</td>
       <td class="pos mono" style="text-align:right">${day.open_cost > 0 ? fmtINR(day.open_cost) : '—'}</td>
-      <td class="${day.net_pnl >= 0 ? 'pos' : 'neg'} mono" style="text-align:right">${fmtINR(day.net_pnl)}</td>
+      <td class="${day.intraday_pnl >= 0 ? 'pos' : 'neg'} mono" style="text-align:right">${fmtINR(day.intraday_pnl)}</td>
+      <td class="${day.positional_pnl >= 0 ? 'pos' : 'neg'} mono" style="text-align:right">${fmtINR(day.positional_pnl)}</td>
+      <td class="${day.net_pnl >= 0 ? 'pos' : 'neg'} mono" style="text-align:right; font-weight:700">${fmtINR(day.net_pnl)}</td>
     </tr>
   `).join('');
 }
