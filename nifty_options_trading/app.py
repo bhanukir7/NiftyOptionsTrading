@@ -680,19 +680,27 @@ def _run_monitor(req: MonitorRequest) -> dict:
     theta    = evaluate_theta_risk(dte, threshold=2)
 
     # Build strike-level OI summary for the mini chart
-    # Extracting change_in_oi for better strategy detection
-    calls = chain_df[chain_df["right"].str.upper().isin(["CALL", "CE"])][["strike_price", "open_interest", "change_in_oi"]].copy()
-    puts  = chain_df[chain_df["right"].str.upper().isin(["PUT", "PE"])][["strike_price", "open_interest", "change_in_oi"]].copy()
-    calls.columns = ["strike", "call_oi", "call_oi_change"]
-    puts.columns  = ["strike", "put_oi", "put_oi_change"]
+    # Safely handle optional change_in_oi column (not always present in API response)
+    _has_oi_change = "change_in_oi" in chain_df.columns
+    _call_cols = ["strike_price", "open_interest"] + (["change_in_oi"] if _has_oi_change else [])
+    _put_cols  = ["strike_price", "open_interest"] + (["change_in_oi"] if _has_oi_change else [])
+    calls = chain_df[chain_df["right"].str.upper().isin(["CALL", "CE"])][_call_cols].copy()
+    puts  = chain_df[chain_df["right"].str.upper().isin(["PUT", "PE"])][_put_cols].copy()
+    if _has_oi_change:
+        calls.columns = ["strike", "call_oi", "call_oi_change"]
+        puts.columns  = ["strike", "put_oi", "put_oi_change"]
+    else:
+        calls.columns = ["strike", "call_oi"]
+        puts.columns  = ["strike", "put_oi"]
+        calls["call_oi_change"] = 0.0
+        puts["put_oi_change"]   = 0.0
     merged = pd.merge(calls, puts, on="strike", how="outer").fillna(0)
-    merged = merged.sort_values("strike")
+    merged = merged.sort_values("strike").reset_index(drop=True)  # reset so iloc positions are contiguous
 
     # Keep ±10 strikes around max-pain
-    if max_pain > 0:
+    if max_pain > 0 and not merged.empty:
         diffs = (merged["strike"] - max_pain).abs()
-        atm_idx = diffs.idxmin()
-        atm_pos = merged.index.get_loc(atm_idx)
+        atm_pos = int(diffs.idxmin())  # index == iloc position after reset_index
         start   = max(0, atm_pos - 10)
         end     = min(len(merged), atm_pos + 11)
         merged  = merged.iloc[start:end]
@@ -720,29 +728,35 @@ def _run_monitor(req: MonitorRequest) -> dict:
         for _, row in merged.iterrows()
     ]
     
-    # 2. Fetch Actual Underlying Spot Price (Corrected: using NSE cash price)
+    # 2. Fetch Actual Underlying Spot Price
     # We use 1-minute historical data to get the latest spot close price.
     spot_price = 0.0
     try:
+        # Auto-correct BSESEN to BSESN for Cash spot price lookup
+        spot_sym = "BSESN" if stock_code == "BSESEN" else stock_code
+        hist_exch = "BSE" if spot_sym in ["BSESN", "BANKEX"] else "NSE"
+        
         now_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.000Z")
         start_iso = datetime.now().strftime("%Y-%m-%dT00:00:00.000Z")
         hist = breeze.get_historical_data(
             interval="1minute",
             from_date=start_iso,
             to_date=now_iso,
-            stock_code=stock_code,
-            exchange_code="NSE",
+            stock_code=spot_sym,
+            exchange_code=hist_exch,
             product_type="cash"
         )
         if hist and hist.get("Status") == 200 and hist.get("Success"):
             spot_price = float(hist["Success"][-1]["close"])
         else:
             # Fallback to chain LTP if historical data fails (less accurate)
-            spot_price = float(chain_df.iloc[0].get("last_traded_price", 
-                               chain_df.iloc[0].get("ltp", 0)))
+            if not chain_df.empty:
+                row0 = chain_df.iloc[0]
+                spot_price = float(row0.get("last_traded_price", row0.get("ltp", 0)) or 0)
     except Exception as e:
         print(f"Error fetching spot price for monitor: {e}")
-        spot_price = float(chain_df.iloc[0].get("last_traded_price", 0))
+        if not chain_df.empty:
+            spot_price = float(chain_df.iloc[0].get("last_traded_price", 0) or 0)
 
     # We use a neutral bias for the one-shot monitor unless we track it
     ai_strategy = strat.generate_signal(
@@ -960,7 +974,7 @@ async def engine_status():
         "trades_today": _engine.state.trades_today,
         "daily_pnl": round(_engine.state.daily_pnl, 2),
         "current_bias": _engine.state.current_bias,
-        "active_pos": _engine.state.active_position is not None,
+        "active_pos": len(_engine.state.active_positions) > 0,
         "last_signal": _engine.last_signal
     }
 
@@ -1031,6 +1045,7 @@ def _run_strict_analysis(req: StrictRequest) -> dict:
         "confidence": strict_res["confidence"],
         "reasons": strict_res["reasons"],
         "indicators": strict_res["indicators"],
+        "lot_size": lot_size,
         "strikes": strikes_data,
         "timestamp": datetime.now().isoformat()
     }

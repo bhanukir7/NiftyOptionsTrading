@@ -60,7 +60,12 @@ _BTST_ASIA_TICKERS   = ["^N225", "^HSI", "^STI", "000001.SS", "^KS11", "^TWII"] 
 _BTST_INDIA_TICKER   = "^NSEI"                                # Nifty50 as Gift Nifty proxy
 
 def fetch_world_markets() -> dict:
-    """Fetch live quote data for world indices via yfinance with 5-min caching."""
+    """Fetch live quote data for world indices via yfinance with 5-min caching.
+    
+    Uses fast_info for real-time last_price / previous_close so Indian and other
+    live-session indices correctly show intraday change (not stale EOD comparison).
+    Falls back to daily OHLC pct_change for markets that are closed.
+    """
     global _GLOBAL_MARKETS_CACHE, _GLOBAL_MARKETS_TIMESTAMP
 
     # Check cache
@@ -69,46 +74,72 @@ def fetch_world_markets() -> dict:
 
     try:
         import yfinance as yf
+
         tickers = list(WORLD_INDICES.values())
-        # period="5d" to ensure we get at least 2 valid closing points for pct_change
+
+        # ── Step 1: Bulk download for EOD baseline (previous close) ──────────
+        # period="5d" daily gives us ≥2 rows of closing prices for all markets.
         data = yf.download(tickers, period="5d", progress=False, auto_adjust=True)["Close"]
-        
         if isinstance(data, pd.Series):
             data = data.to_frame()
 
-        pct = data.pct_change(fill_method=None).iloc[-1]
-        prev_close = data.iloc[-2]
-        last_close = data.iloc[-1]
+        today_str = datetime.now().strftime("%Y-%m-%d")
 
+        # ── Step 2: Per-ticker real-time enrichment ───────────────────────────
+        # For any ticker whose last EOD row is NOT today (i.e., market is live),
+        # pull fast_info to get the real-time last_price and previous_close.
         results = []
         for name, ticker in WORLD_INDICES.items():
+            lc, pc, chg = 0.0, 0.0, 0.0
             try:
-                raw_chg = pct.get(ticker, 0.0)
-                chg = float(raw_chg if pd.notnull(raw_chg) else 0.0) * 100
-                
-                raw_lc = last_close.get(ticker, 0.0)
-                lc = float(raw_lc if pd.notnull(raw_lc) else 0.0)
-                
-                raw_pc = prev_close.get(ticker, 0.0)
-                pc = float(raw_pc if pd.notnull(raw_pc) else 0.0)
+                # Check if today's data is already in the bulk download
+                col_data = data[ticker].dropna() if ticker in data.columns else pd.Series(dtype=float)
+                last_date = col_data.index[-1].strftime("%Y-%m-%d") if not col_data.empty else ""
+                eod_last  = float(col_data.iloc[-1])  if not col_data.empty else 0.0
+                eod_prev  = float(col_data.iloc[-2])  if len(col_data) >= 2 else 0.0
+
+                if last_date == today_str:
+                    # Today's EOD row exists — market closed, use bulk data
+                    lc  = eod_last
+                    pc  = eod_prev
+                    chg = ((lc - pc) / pc * 100) if pc > 0 else 0.0
+                else:
+                    # Market is currently open — use fast_info for live quote
+                    try:
+                        fi   = yf.Ticker(ticker).fast_info
+                        live = getattr(fi, "last_price", None)
+                        prev = getattr(fi, "previous_close", None)
+                        if live and prev and prev > 0:
+                            lc  = float(live)
+                            pc  = float(prev)
+                            chg = (lc - pc) / pc * 100
+                        else:
+                            # fast_info incomplete — fall back to EOD bulk data
+                            lc  = eod_last
+                            pc  = eod_prev
+                            chg = ((lc - pc) / pc * 100) if pc > 0 else 0.0
+                    except Exception:
+                        lc  = eod_last
+                        pc  = eod_prev
+                        chg = ((lc - pc) / pc * 100) if pc > 0 else 0.0
             except Exception:
-                chg, lc, pc = 0.0, 0.0, 0.0
-            
-            # Final sanity check for JSON compliance
+                lc, pc, chg = 0.0, 0.0, 0.0
+
+            # JSON safety
             if math.isnan(chg): chg = 0.0
-            if math.isnan(lc):  lc = 0.0
-            if math.isnan(pc):  pc = 0.0
+            if math.isnan(lc):  lc  = 0.0
+            if math.isnan(pc):  pc  = 0.0
 
             results.append({
-                "name":   name,
-                "ticker": ticker,
-                "region": REGION_MAP.get(name, "Other"),
-                "last":   round(lc, 2),
-                "prev":   round(pc, 2),
+                "name":       name,
+                "ticker":     ticker,
+                "region":     REGION_MAP.get(name, "Other"),
+                "last":       round(lc, 2),
+                "prev":       round(pc, 2),
                 "change_pct": round(chg, 3),
-                "direction": "up" if chg > 0 else "down" if chg < 0 else "flat",
+                "direction":  "up" if chg > 0 else "down" if chg < 0 else "flat",
             })
-        
+
         cache_result = {"markets": results, "timestamp": datetime.now().isoformat(), "error": None}
         _GLOBAL_MARKETS_CACHE = cache_result
         _GLOBAL_MARKETS_TIMESTAMP = time.time()

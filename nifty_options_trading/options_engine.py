@@ -20,19 +20,26 @@ def get_option_chain(breeze: SafeBreeze, stock_code: str, expiry_date: str) -> p
     """
     print(f"Fetching Option Chain for {stock_code} expiring on {expiry_date}")
     
+    # Sensex option symbol is BSESEN (Cash symbol is BSESN)
+    if stock_code.upper() == "BSESN":
+        stock_code = "BSESEN"
+        
+    # Determine the correct exchange code (NFO vs BFO)
+    exch_code = "BFO" if stock_code.upper() in ["BSESEN", "BANKEX"] else "NFO"
+
     try:
         # Breeze get_option_chain_quotes API can sometimes be finicky with "others".
         # We will fetch Call and Put options separately and combine them.
         calls_response = breeze.get_option_chain_quotes(
             stock_code=stock_code,
-            exchange_code="NFO",
+            exchange_code=exch_code,
             product_type="options",
             expiry_date=f"{expiry_date}T06:00:00.000Z",
             right="Call" 
         )
         puts_response = breeze.get_option_chain_quotes(
             stock_code=stock_code,
-            exchange_code="NFO",
+            exchange_code=exch_code,
             product_type="options",
             expiry_date=f"{expiry_date}T06:00:00.000Z",
             right="Put" 
@@ -83,13 +90,14 @@ class SecurityMasterCache:
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
             
-        txt_path = os.path.join(log_dir, f"FONSEScripMaster_{today_date_str}.txt")
+        nse_txt_path = os.path.join(log_dir, f"FONSEScripMaster_{today_date_str}.txt")
+        bse_txt_path = os.path.join(log_dir, f"FOBSEScripMaster_{today_date_str}.txt")
         zip_path = os.path.join(log_dir, "SecurityMaster.zip")
         
-        if not os.path.exists(txt_path):
+        if not os.path.exists(nse_txt_path) or not os.path.exists(bse_txt_path):
             # Cleanup old master files before downloading new one
             import glob
-            old_masters = glob.glob(os.path.join(log_dir, "FONSEScripMaster_*.txt"))
+            old_masters = glob.glob(os.path.join(log_dir, "*ScripMaster_*.txt"))
             for old_file in old_masters:
                 try:
                     print(f"  [-] Cleaning up old master file: {os.path.basename(old_file)}")
@@ -101,41 +109,54 @@ class SecurityMasterCache:
             try:
                 urllib.request.urlretrieve("https://directlink.icicidirect.com/NewSecurityMaster/SecurityMaster.zip", zip_path)
                 with zipfile.ZipFile(zip_path, 'r') as z:
-                    z.extract("FONSEScripMaster.txt", log_dir)
-                os.rename(os.path.join(log_dir, "FONSEScripMaster.txt"), txt_path)
+                    z.extractall(log_dir) # Extract all files
+                
+                # Rename the specific files we need for F&O
+                for prefix in ["FONSEScripMaster", "FOBSEScripMaster"]:
+                    src = os.path.join(log_dir, f"{prefix}.txt")
+                    dst = os.path.join(log_dir, f"{prefix}_{today_date_str}.txt")
+                    if os.path.exists(src):
+                        os.rename(src, dst)
+                        
                 if os.path.exists(zip_path):
                     os.remove(zip_path)  # cleanup
             except Exception as e:
                 print(f"Failed to download Security Master: {e}")
                 return 1  # Fallback on error
 
-        # Load CSV into memory — include all columns useful for trading
-        if os.path.exists(txt_path):
-            try:
-                cls._master_df = pd.read_csv(
-                    txt_path,
-                    usecols=[
-                        'Token', 'InstrumentName', 'ShortName',
-                        'ExpiryDate', 'StrikePrice', 'OptionType',
-                        'LotSize', 'TickSize',
-                        'LowPriceRange', 'HighPriceRange',
-                    ],
-                    dtype=str,
-                )
-                # Normalise numeric columns
-                cls._master_df['LotSize']     = pd.to_numeric(cls._master_df['LotSize'],     errors='coerce').fillna(1).astype(int)
-                cls._master_df['StrikePrice'] = pd.to_numeric(cls._master_df['StrikePrice'], errors='coerce').fillna(0)
-                cls._master_df['TickSize']    = pd.to_numeric(cls._master_df['TickSize'],    errors='coerce').fillna(0.05)
-                # Parse ExpiryDate → datetime (format "28-Apr-2026")
-                cls._master_df['ExpiryDate']  = pd.to_datetime(
-                    cls._master_df['ExpiryDate'], format='%d-%b-%Y', errors='coerce'
-                )
-                cls._last_date = today_date_str
-                row = cls._master_df[cls._master_df['ShortName'] == stock_code]
-                if not row.empty:
-                    return int(row.iloc[0]['LotSize'])
-            except Exception as e:
-                print(f"Failed to parse Security Master: {e}")
+        # Load CSVs into memory — include all columns useful for trading
+        dfs_to_concat = []
+        for pth in [nse_txt_path, bse_txt_path]:
+            if os.path.exists(pth):
+                try:
+                    _df = pd.read_csv(
+                        pth,
+                        usecols=[
+                            'Token', 'InstrumentName', 'ShortName',
+                            'ExpiryDate', 'StrikePrice', 'OptionType',
+                            'LotSize', 'TickSize',
+                            'LowPriceRange', 'HighPriceRange',
+                        ],
+                        dtype=str,
+                    )
+                    dfs_to_concat.append(_df)
+                except Exception as e:
+                    print(f"Failed to parse {os.path.basename(pth)}: {e}")
+                    
+        if dfs_to_concat:
+            cls._master_df = pd.concat(dfs_to_concat, ignore_index=True)
+            # Normalise numeric columns
+            cls._master_df['LotSize']     = pd.to_numeric(cls._master_df['LotSize'],     errors='coerce').fillna(1).astype(int)
+            cls._master_df['StrikePrice'] = pd.to_numeric(cls._master_df['StrikePrice'], errors='coerce').fillna(0)
+            cls._master_df['TickSize']    = pd.to_numeric(cls._master_df['TickSize'],    errors='coerce').fillna(0.05)
+            # Parse ExpiryDate → datetime (format "28-Apr-2026")
+            cls._master_df['ExpiryDate']  = pd.to_datetime(
+                cls._master_df['ExpiryDate'], format='%d-%b-%Y', errors='coerce'
+            )
+            cls._last_date = today_date_str
+            row = cls._master_df[cls._master_df['ShortName'] == stock_code]
+            if not row.empty:
+                return int(row.iloc[0]['LotSize'])
 
         return 1
 
@@ -220,12 +241,15 @@ class SecurityMasterCache:
 
 def get_dynamic_lot_size(stock_code: str) -> int:
     """Public wrapper to fetch lot size transparently."""
+    if stock_code.upper() == "BSESN": stock_code = "BSESEN"
     return SecurityMasterCache.get_lot_size(stock_code)
 
 def get_expiries(stock_code: str, option_type: str = 'CE') -> list:
     """Public wrapper to list available expiry dates from the Security Master."""
+    if stock_code.upper() == "BSESN": stock_code = "BSESEN"
     return SecurityMasterCache.get_expiries(stock_code, option_type)
 
 def get_strikes(stock_code: str, expiry_date, option_type: str = 'CE') -> list:
     """Public wrapper to list available strikes from the Security Master."""
+    if stock_code.upper() == "BSESN": stock_code = "BSESEN"
     return SecurityMasterCache.get_strikes(stock_code, expiry_date, option_type)

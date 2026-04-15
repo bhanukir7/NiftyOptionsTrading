@@ -27,6 +27,7 @@ from nifty_options_trading.rule_engine import (
 from nifty_options_trading.options_engine import get_option_chain, get_expiries
 from nifty_options_trading.max_pain import calculate_max_pain
 from nifty_options_trading.alerts import send_alert
+from nifty_options_trading.breakout_strategy import BreakoutStrategy, MarketData
 
 class AutonomousEngine:
     """
@@ -38,6 +39,7 @@ class AutonomousEngine:
         self.config = Config()
         self.stream = MarketStream(breeze)
         self.maxpain_strat = MaxPainStrategy()
+        self.breakout_strat = BreakoutStrategy()
         
         self._is_running = False
         self._thread = None
@@ -89,8 +91,8 @@ class AutonomousEngine:
                 # 1. Active Trade Management (Every 5s)
                 if now - last_5s >= 5:
                     last_5s = now
-                    if self.state.active_position:
-                        self._manage_active_position()
+                    if self.state.active_positions:
+                        self._manage_active_positions()
 
                 # 2. Scanning Loop (Every 60s)
                 if now - last_60s >= 60:
@@ -102,22 +104,25 @@ class AutonomousEngine:
                 self.log(f"CRITICAL ENGINE ERROR: {e}")
                 time.sleep(10)
 
-    def _manage_active_position(self):
-        pos = self.state.active_position
-        # Simulated/Paper Trade management
-        current_spot = self.stream.get_price("NIFTY") # Simplified to Nifty for now
-        if not current_spot: return
-        
-        is_closed, reason, real_pnl = manage_trade(pos, current_spot, self.state, self.config)
-        
-        if is_closed:
-            self._finalize_trade(reason, real_pnl)
-        elif reason.startswith("Partial"):
-            self.log(f"Partial profit booked: {reason}")
-            send_alert(f"🎯 **PARTIAL PROFIT**\n{reason}\nPnL: ₹{real_pnl:.2f}")
+    def _manage_active_positions(self):
+        closed_symbols = []
+        for symbol, pos in self.state.active_positions.items():
+            current_spot = self.stream.get_price(symbol)
+            if not current_spot: continue
+            
+            is_closed, reason, real_pnl = manage_trade(pos, current_spot, self.state, self.config)
+            
+            if is_closed:
+                closed_symbols.append((symbol, reason, real_pnl))
+            elif reason.startswith("Partial"):
+                self.log(f"[{symbol}] Partial profit booked: {reason}")
+                send_alert(f"🎯 **PARTIAL PROFIT [{symbol}]**\n{reason}\nPnL: ₹{real_pnl:.2f}")
+                
+        for symbol, reason, real_pnl in closed_symbols:
+            self._finalize_trade(symbol, reason, real_pnl)
 
     def _scan_opportunities(self):
-        if self.state.active_position: return
+        # Allow multiple concurrent scans if capacity allows
         
         allowed, reason = can_trade(self.state, self.config)
         if not allowed:
@@ -129,6 +134,8 @@ class AutonomousEngine:
             return
 
         for symbol in self.stock_codes:
+            if symbol in self.state.active_positions:
+                continue # Already in a trade for this symbol
             self._analyze_symbol(symbol)
 
     def _analyze_symbol(self, symbol: str):
@@ -145,51 +152,58 @@ class AutonomousEngine:
             if not hist_res or hist_res.get("Status") != 200: return
             
             df = pd.DataFrame(hist_res["Success"])
-            df["close"] = pd.to_numeric(df["close"])
+            for col in ["open", "high", "low", "close", "volume"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+            df.dropna(subset=["close"], inplace=True)
             
             spot = self.stream.get_price(symbol) or df.iloc[-1]["close"]
             vwap = df["close"].mean() # Simplified
             bias = determine_bias(spot, vwap)
             self.state.current_bias = bias
+            
+            # Extract basic technically approximated values for Breakout Logic
+            atr = (df["high"] - df["low"]).mean() # Proxy
+            bb_upper = df["close"].rolling(20).mean().iloc[-1] + (2 * df["close"].rolling(20).std().iloc[-1])
+            bb_lower = df["close"].rolling(20).mean().iloc[-1] - (2 * df["close"].rolling(20).std().iloc[-1])
+            resistance = df["high"].max() # Using intraday high as resistance
+            support = df["low"].min()     # Using intraday low as support
+            
+            # Fetch options chain to satisfy Breakout Logic requirements
+            expiries = get_expiries(symbol, "CE")
+            if not expiries: return
+            expiry = expiries[0].strftime("%Y-%m-%d")
+            chain_res = get_option_chain(self.breeze, symbol, expiry)
+            
+            call_oi, put_oi, pcr = 0, 0, 1.0
+            if chain_res is not None and not chain_res.empty:
+                call_oi = chain_res[chain_res["right"].str.upper().isin(["CALL", "CE"])]["open_interest"].sum()
+                put_oi  = chain_res[chain_res["right"].str.upper().isin(["PUT", "PE"])]["open_interest"].sum()
+                pcr = put_oi / call_oi if call_oi > 0 else 1.0
 
-            # 2. Max Pain Strategy (if enabled)
-            if self.config.enable_maxpain_strategy:
-                # Resolve nearest expiry
-                expiries = get_expiries(symbol, "CE")
-                if not expiries:
-                    return
-                expiry = expiries[0].strftime("%Y-%m-%d")
+            # Feed Breakout Strategy
+            market_data = MarketData(
+                symbol=symbol, price=spot, resistance=resistance, support=support,
+                atr=atr, chop=56, bb_upper=bb_upper, bb_lower=bb_lower,
+                macd=1, macd_signal=0.5, pcr=pcr, call_oi=call_oi, put_oi=put_oi, iv=15
+            )
+            
+            action = self.breakout_strat.process_tick(market_data, spot)
+            if action and action["action"] == "ENTER":
+                self.log(f"BREAKOUT STRATEGY SIGNAL: {action['type']} on {symbol}")
+                sig = {
+                    "signal": f"BUY_{action['type']}",
+                    "reason": action["reason"],
+                    "target": spot * 1.05,
+                    "stop_loss": spot * 0.97
+                }
+                self._execute_signal(symbol, sig)
+                return
 
-                # Fetch option chain
-                chain_res = get_option_chain(self.breeze, symbol, expiry) 
-                if chain_res is not None:
-                    max_pain = calculate_max_pain(chain_res)
-                    # Convert chain to list of dicts for the strategy
-                    # ... simplified extraction ...
-                    oi_data = [] # ... build from chain_res ...
-                    
-                    # For brevity in this implementation, we'll build the list
-                    for _, row in chain_res.iterrows():
-                        oi_data.append({
-                            "strike": float(row["strike_price"]),
-                            "call_oi": float(row["open_interest"]) if row["right"].lower() == "call" else 0,
-                            "put_oi": float(row["open_interest"]) if row["right"].lower() == "put" else 0,
-                            "call_oi_change": 0, # Placeholder
-                            "put_oi_change": 0   # Placeholder
-                        })
-                    
-                    mp_result = self.maxpain_strat.generate_signal(spot, oi_data, max_pain, bias, 1)
-                    if mp_result["signal"] != "NO_TRADE":
-                        self.log(f"MAX PAIN SIGNAL: {mp_result['signal']} on {symbol} (Conf: {mp_result['confidence']})")
-                        if mp_result["confidence"] >= 70:
-                            self._execute_signal(symbol, mp_result)
-                            return
-
-            # 3. Technical Strategy Fallback
+            # Keep Technical Strategy Fallback if breakout doesn't trigger
             tech_signal = analyze_and_generate_signal(df)
             if tech_signal != "HOLD":
                 self.log(f"TECHNICAL SIGNAL: {tech_signal} on {symbol}")
-                # ... wrap in standard signal format ...
                 sig = {
                     "signal": "BUY_CE" if tech_signal == "BUY_CALL" else "BUY_PE",
                     "reason": "EMA Cross + MACD Alignment",
@@ -225,7 +239,7 @@ class AutonomousEngine:
             sl_price=sl, 
             target_price=signal_data.get("targets", {}).get("t1", spot*1.05)
         )
-        self.state.active_position = pos
+        self.state.active_positions[symbol] = pos
         self.state.trades_today += 1
         self.state.last_trade_time = datetime.now()
         
@@ -238,16 +252,18 @@ class AutonomousEngine:
         self.log(f"ENTRY: {opt_type} at {spot:.2f} ({mode})")
         send_alert(msg)
 
-    def _finalize_trade(self, reason: str, pnl: float):
+    def _finalize_trade(self, symbol: str, reason: str, pnl: float):
         if pnl > 0: update_profit(self.state, pnl)
         else: update_loss(self.state, pnl)
         
-        pos = self.state.active_position
-        self.log(f"TRADE CLOSED: {reason} | PnL: ₹{pnl:.2f}")
+        self.log(f"TRADE CLOSED [{symbol}]: {reason} | PnL: ₹{pnl:.2f}")
         
-        msg = (f"🛑 **ENGINE EXIT**\n"
+        mode = "LIVE (BETA)" if not self.config.paper_trade else "PAPER TRADE"
+        msg = (f"🛑 **ENGINE EXIT [{symbol}] ({mode})**\n"
                f"Reason: {reason}\n"
                f"Realized PnL: ₹{pnl:.2f}\n"
                f"Daily PnL: ₹{self.state.daily_pnl:.2f}")
         send_alert(msg)
-        self.state.active_position = None
+        if symbol in self.state.active_positions:
+            del self.state.active_positions[symbol]
+        self.breakout_strat.reset_state(symbol)

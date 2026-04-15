@@ -23,7 +23,17 @@ def validate_strict_signal(df: pd.DataFrame) -> dict:
     for col in ["open", "high", "low", "close", "volume"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
-    df = df.dropna(subset=["close", "volume"])
+    df = df.dropna(subset=["close", "volume"]).reset_index(drop=True)
+
+    # Guard: after cleaning, ensure sufficient rows remain
+    if len(df) < 2:
+        return {
+            "signal": "NO TRADE",
+            "confidence": 0,
+            "reasons": ["Insufficient clean data after removing NaN values"],
+            "indicators": {"price": 0, "ema9": 0, "ema21": 0, "vwap": 0,
+                           "rsi": 50, "volume": 0, "avg_volume": 0}
+        }
 
     # 1. Calculate base indicators
     price = df.iloc[-1]["close"]

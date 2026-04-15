@@ -20,7 +20,8 @@ class Config:
     max_intraday_move_pct: float = 2.5
     # New V2.0 Strategy Controls
     enable_maxpain_strategy: bool = True
-    paper_trade: bool = True  # Toggle for live order placement
+    paper_trade: bool = True  # Setup for paper trade as requested
+    max_concurrent_trades: int = 3
 
 # --- G. Trade Execution Model (Position class) ---
 @dataclass
@@ -41,7 +42,7 @@ class StateManager:
         self.consecutive_losses: int = 0
         self.daily_pnl: float = 0.0
         self.last_trade_time: Optional[datetime] = None
-        self.active_position: Optional[Position] = None
+        self.active_positions: dict[str, Position] = {}
         self.current_bias: Literal["BULLISH", "BEARISH", "NONE"] = "NONE"
 
     def reset(self):
@@ -50,7 +51,7 @@ class StateManager:
         self.consecutive_losses = 0
         self.daily_pnl = 0.0
         self.last_trade_time = None
-        self.active_position = None
+        self.active_positions.clear()
         self.current_bias = "NONE"
 
 # --- C. Bias Engine ---
@@ -79,8 +80,8 @@ def can_trade(state: StateManager, config: Config = Config()) -> Tuple[bool, str
         if minutes_since_last_trade < config.cooldown_minutes:
              return False, f"Cooldown period active. Must wait {config.cooldown_minutes:.1f} mins."
              
-    if state.active_position is not None:
-        return False, "An active position already exists."
+    if len(state.active_positions) >= config.max_concurrent_trades:
+        return False, f"Max concurrent active positions ({config.max_concurrent_trades}) reached."
         
     return True, "Trading allowed."
 
@@ -177,11 +178,11 @@ def update_loss(state: StateManager, pnl: float):
 
 # --- J. Time Filter ---
 def can_take_new_trade_time(current_time: Optional[datetime] = None) -> bool:
-    """Blocks new trades after 2:30 PM."""
+    """Blocks new trades after 3:25 PM."""
     if current_time is None:
         current_time = datetime.now()
     
-    cutoff_time = time(14, 30) # 2:30 PM
+    cutoff_time = time(15, 25) # 3:25 PM
     if current_time.time() >= cutoff_time:
         return False
     return True
