@@ -15,6 +15,8 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from dotenv import load_dotenv, find_dotenv
+import nifty_options_trading.session_manager as sm
 
 # ── Always resolve paths relative to this file ──────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent
@@ -73,6 +75,54 @@ def check_setup():
         print(f"      automatically when you start analyzing live contracts.")
         print("-" * 50)
 
+def validate_session_preflight():
+    """Checks if the session is alive. If not, triggers the interactive refresh."""
+    print(f"[run.py] API Session Check...")
+    load_dotenv(find_dotenv())
+    
+    api_key = os.getenv("API_KEY")
+    api_secret = os.getenv("API_SECRET")
+    session_token = os.getenv("SESSION_TOKEN")
+    
+    if not api_key or not api_secret:
+        print("  [!] Error: API_KEY or API_SECRET missing in .env. Setup required.")
+        return False
+        
+    if not session_token:
+        print("  [!] Session token missing. Starting login flow...")
+        return trigger_refresh(api_key)
+
+    # Try a quick health check
+    is_valid, error = sm.check_session_health(api_key, api_secret, session_token)
+    
+    if is_valid:
+        print("  [+] Session token is valid.")
+        return True
+    
+    if "expired" in error.lower() or "session" in error.lower() or "invalid" in error.lower():
+        print(f"  [!] Session token expired/invalid ({error}). Refreshing...")
+        return trigger_refresh(api_key)
+    else:
+        # Some other error (network, API limit, etc.) - we don't want to force login for everything
+        print(f"  [?] Session health check returned unexpected error: {error}")
+        print("      Continuing anyway (it might be a temporary API/network issue).")
+        return True
+
+def trigger_refresh(api_key):
+    """Triggers the interactive session capture."""
+    new_token = sm.capture_session_token(api_key)
+    if new_token:
+        if sm.update_env_token(new_token):
+            print(f"  [+] Successfully updated .env with new token.")
+            # Reload env for the current process as well
+            load_dotenv(find_dotenv(), override=True)
+            return True
+        else:
+            print("  [!] Failed to update .env file.")
+    else:
+        print("  [!] Session refresh cancelled or timed out.")
+    return False
+
 def main():
     parser = argparse.ArgumentParser(description="Nifty Options Trading Suite v2.0 Launcher")
     
@@ -99,6 +149,12 @@ def main():
         args = parser.parse_args()
 
     check_setup()
+    
+    # Pre-flight session check for trading modes
+    if args.mode in ["dash", "btst", "global"]:
+        if not validate_session_preflight():
+            print("[run.py] Critical: Could not establish a valid session. Aborting.")
+            sys.exit(1)
 
     # Ensure PYTHONPATH includes the repo root so every subprocess can import the package
     env = os.environ.copy()

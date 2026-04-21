@@ -134,7 +134,16 @@ async def startup_event():
             print(f"  [!] Security Master warning: {se}")
             
     except Exception as e:
-        print(f"  [!] ENGINE STARTUP FAILED: {e}")
+        error_msg = str(e)
+        print(f"  [!] ENGINE STARTUP FAILED: {error_msg}")
+        
+        if "session" in error_msg.lower() or "expired" in error_msg.lower():
+            print("  [!] CAUSE: API Session is expired or invalid.")
+            print("  [i] ACTION: Please stop the dashboard (Ctrl+C) and run 'python run.py dash' again.")
+            print("      The launcher will automatically trigger an interactive login.")
+        else:
+            print(f"  [i] Unexpected error: {error_msg}")
+            
         print("  [i] Dashboard UI will still be accessible (Trade Journal, etc.)")
 
 @app.on_event("shutdown")
@@ -983,6 +992,33 @@ async def engine_logs():
     if not _engine:
         return {"logs": ["Engine not initialized"]}
     return {"logs": list(_engine.logs)}
+
+@app.get("/api/engine/advanced/signals")
+async def engine_advanced_signals():
+    if not _engine or not hasattr(_engine, "adv_strat"):
+        return {"signals": []}
+    
+    signals = []
+    for sig in _engine.adv_strat.signal_log:
+        signals.append({
+            "symbol": sig.symbol,
+            "type": sig.signal_type,
+            "price": round(sig.price, 2),
+            "time": datetime.fromtimestamp(sig.timestamp).strftime("%H:%M:%S"),
+            "metadata": sig.metadata
+        })
+    return {"signals": signals[::-1]} # Latest first
+
+@app.get("/api/engine/advanced/snapshots")
+async def engine_advanced_snapshots():
+    if not _engine or not hasattr(_engine, "adv_strat"):
+        return {"snapshots": []}
+    
+    snapshots = []
+    for symbol in STOCK_CODES:
+        snap = _engine.adv_strat.get_symbol_snapshot(symbol)
+        snapshots.append(snap)
+    return {"snapshots": snapshots}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

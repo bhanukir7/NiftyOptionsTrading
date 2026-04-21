@@ -1,8 +1,7 @@
-# Breeze Trading Engine - Multi-Symbol + OI/PCR/IV + Candle + Volume + Delta OI
-
+import time
 from enum import Enum
 from dataclasses import dataclass
-import time
+from typing import Dict, List, Optional
 
 # ===================== ENUMS =====================
 class MarketState(Enum):
@@ -32,10 +31,10 @@ class MarketData:
     pcr: float
     call_oi: float
     put_oi: float
-    call_oi_change: float
-    put_oi_change: float
-    iv: float
-    volume: float
+    call_oi_change: float = 0.0
+    put_oi_change: float = 0.0
+    iv: float = 0.0
+    volume: float = 0.0
 
 @dataclass
 class Position:
@@ -56,12 +55,12 @@ class Signal:
     timestamp: float
     metadata: dict
 
-# ===================== ENGINE =====================
-class TradingEngine:
+# ===================== STRATEGY =====================
+class AdvancedBreakoutStrategy:
     def __init__(self):
         self.symbol_states = {}
-        self.signal_log = {}
-        self.last_signal = {}
+        self.signal_log = []
+        self.last_signal = {} # symbol -> {"type": str, "timestamp": float}
 
     def get_state(self, symbol):
         if symbol not in self.symbol_states:
@@ -70,13 +69,13 @@ class TradingEngine:
                 "position": Position(),
                 "break_time": None,
                 "candle_buffer": [],
-                "volume_buffer": []
+                "volume_buffer": [],
+                "last_pcr": 1.0,
+                "last_iv": 0.0
             }
-            self.signal_log[symbol] = []
             self.last_signal[symbol] = {"type": None, "timestamp": 0}
         return self.symbol_states[symbol]
 
-    # ----------- SIGNAL LAYER -----------
     def _emit_signal(self, symbol, signal_type, price, metadata=None):
         now = time.time()
         last = self.last_signal.get(symbol, {"type": None, "timestamp": 0})
@@ -93,54 +92,37 @@ class TradingEngine:
             metadata=metadata or {}
         )
         
-        self.signal_log[symbol].append(signal)
+        self.signal_log.append(signal)
+        if len(self.signal_log) > 100:
+            self.signal_log.pop(0)
+            
         self.last_signal[symbol] = {"type": signal_type, "timestamp": now}
-        
-        # Always emit alert for specific signals
-        alert_triggers = ["ENTRY_CE", "ENTRY_PE", "EXIT", "SCALE_OUT", "BREAKOUT_CONFIRMED"]
-        if signal_type in alert_triggers:
-            self.emit_alert(signal)
-        elif signal_type != "NO_TRADE": # Logic from prompt: DO NOT alert for NO_TRADE repeatedly
-            self.emit_alert(signal)
+        return signal
 
-    # ----------- ALERT LAYER -----------
-    def emit_alert(self, signal: Signal):
-        """Standardized alert hook for console/external systems."""
-        print(f"[ALERT] {signal.symbol} | {signal.signal_type} | {signal.price} | {signal.metadata.get('reason', '')}")
-        # Placeholder for Telegram/Webhook/Slack integration
-        # telegram.send(f"{signal.symbol} signaled {signal.signal_type}")
-
-    # ----------- STATE SNAPSHOT -----------
     def get_symbol_snapshot(self, symbol):
         s = self.get_state(symbol)
         pos = s["position"]
         
-        # PnL estimate based on option_ltp (using last signal price or current price if none)
         pnl = 0.0
         if pos.type != PositionType.NONE:
-            # Note: In a real system, you'd fetch the latest option price here
-            # For the snapshot, we'll return the last seen option price if it's updated in manage_trade
             pnl = pos.max_price_seen - pos.option_price if pos.type == PositionType.CE else pos.option_price - pos.max_price_seen
-            # For better accuracy, the system should pass option_ltp to this method or store it in state
-            # I will use max_price_seen as a proxy or assume externally provided LTP
 
         return {
+            "symbol": symbol,
             "state": s["state"].value,
             "position": pos.type.value,
-            "entry_price": pos.entry_price,
-            "pnl_estimate": pnl, 
-            "breakout_level": pos.breakout_level,
-            "momentum": pos.last_momentum,
-            "oi_bias": "BULLISH" if s.get("last_pcr", 1.0) > 1.0 else "BEARISH", # simplified
-            "iv": s.get("last_iv", 0.0),
-            "last_signal": self.last_signal[symbol]["type"]
+            "entry_price": round(pos.entry_price, 2),
+            "pnl_estimate": round(pnl, 2), 
+            "breakout_level": round(pos.breakout_level, 2),
+            "momentum": round(pos.last_momentum, 4),
+            "oi_bias": "BULLISH" if s.get("last_pcr", 1.0) > 1.0 else "BEARISH",
+            "iv": round(s.get("last_iv", 0.0), 2),
+            "last_signal": self.last_signal[symbol]["type"],
+            "timestamp": time.time()
         }
 
-    # ----------- STATE DETECTION -----------
     def detect_state(self, data: MarketData):
         s = self.get_state(data.symbol)
-        old_state = s["state"]
-
         if data.chop > 55 and data.atr < 10:
             s["state"] = MarketState.RANGE
             self._emit_signal(data.symbol, "RANGE_DETECTED", data.price)
@@ -151,11 +133,9 @@ class TradingEngine:
             s["state"] = MarketState.NO_TRADE
             self._emit_signal(data.symbol, "NO_TRADE", data.price)
         
-        # Store for snapshot
         s["last_pcr"] = data.pcr
         s["last_iv"] = data.iv
 
-    # ----------- FILTERS -----------
     def oi_pcr_filter(self, data: MarketData, direction: PositionType):
         if direction == PositionType.CE:
             if data.pcr < 0.8 and data.call_oi_change > 0:
@@ -171,73 +151,53 @@ class TradingEngine:
     def volume_spike(self, symbol, current_volume):
         s = self.get_state(symbol)
         vol_buf = s["volume_buffer"]
-
         vol_buf.append(current_volume)
-        if len(vol_buf) > 20:
-            vol_buf.pop(0)
-
-        avg_vol = sum(vol_buf) / len(vol_buf)
-
-        return current_volume > avg_vol * 1.5
+        if len(vol_buf) > 20: vol_buf.pop(0)
+        avg_vol = sum(vol_buf) / len(vol_buf) if vol_buf else 0
+        return current_volume > avg_vol * 1.5 if avg_vol > 0 else False
 
     def candle_confirm(self, symbol, price, level, direction):
         s = self.get_state(symbol)
         candles = s["candle_buffer"]
-
         candles.append(price)
-        if len(candles) > 3:
-            candles.pop(0)
-
-        if len(candles) < 2:
-            return False
-
+        if len(candles) > 3: candles.pop(0)
+        if len(candles) < 2: return False
         if direction == PositionType.CE:
             return all(p > level for p in candles[-2:])
-
         if direction == PositionType.PE:
             return all(p < level for p in candles[-2:])
-
         return False
 
-    # ----------- ENTRY LOGIC -----------
     def check_entry(self, data: MarketData):
         s = self.get_state(data.symbol)
-
-        if s["state"] != MarketState.BREAKOUT_SETUP:
-            return
+        if s["state"] != MarketState.BREAKOUT_SETUP: return None
 
         if s["break_time"] is None:
             s["break_time"] = time.time()
-            return
+            return None
 
-        if time.time() - s["break_time"] < 60:  # shorter delay
-            return
+        if time.time() - s["break_time"] < 60: return None
 
-        # CE breakout
         if data.price > data.resistance:
             if (self.candle_confirm(data.symbol, data.price, data.resistance, PositionType.CE)
                 and self.volume_spike(data.symbol, data.volume)
                 and self.oi_pcr_filter(data, PositionType.CE)
                 and self.iv_filter(data)):
                 self._emit_signal(data.symbol, "BREAKOUT_CONFIRMED", data.price, {"side": "CE"})
-                self.enter_trade(data.symbol, PositionType.CE, data)
-
-        # PE breakdown
+                return self.enter_trade(data.symbol, PositionType.CE, data)
         elif data.price < data.support:
             if (self.candle_confirm(data.symbol, data.price, data.support, PositionType.PE)
                 and self.volume_spike(data.symbol, data.volume)
                 and self.oi_pcr_filter(data, PositionType.PE)
                 and self.iv_filter(data)):
                 self._emit_signal(data.symbol, "BREAKOUT_CONFIRMED", data.price, {"side": "PE"})
-                self.enter_trade(data.symbol, PositionType.PE, data)
+                return self.enter_trade(data.symbol, PositionType.PE, data)
+        return None
 
     def enter_trade(self, symbol, pos_type, data):
         s = self.get_state(symbol)
-
         breakout_level = data.resistance if pos_type == PositionType.CE else data.support
-
-        print(f"[{symbol}] ENTER {pos_type.value} @ {data.price}")
-
+        
         s["position"] = Position(
             type=pos_type,
             entry_price=data.price,
@@ -247,103 +207,52 @@ class TradingEngine:
             breakout_level=breakout_level,
             last_momentum=abs(data.macd - data.macd_signal)
         )
-
         s["state"] = MarketState.TREND
         
-        # Signal Emission
         sig_type = "ENTRY_CE" if pos_type == PositionType.CE else "ENTRY_PE"
         self._emit_signal(symbol, sig_type, data.price)
         self._emit_signal(symbol, "TRAIL_ACTIVE", data.price)
+        
+        return {"action": "ENTER", "type": pos_type.value, "price": data.price}
 
-    # ----------- EXIT LOGIC -----------
     def manage_trade(self, data: MarketData, option_ltp: float):
         s = self.get_state(data.symbol)
         pos = s["position"]
-
-        if pos.type == PositionType.NONE:
-            return
+        if pos.type == PositionType.NONE: return None
 
         current_momentum = abs(data.macd - data.macd_signal)
+        if option_ltp > pos.max_price_seen: pos.max_price_seen = option_ltp
 
-        if option_ltp > pos.max_price_seen:
-            pos.max_price_seen = option_ltp
-
-        # Spike exit
+        exit_reason = None
         if option_ltp >= pos.option_price * 1.2:
             if pos.type == PositionType.CE and data.price <= pos.breakout_level:
-                self.exit_trade(data.symbol, "Spike no breakout")
-
-        # Time-based exit
-        if time.time() - pos.entry_time > 900:
-            self.exit_trade(data.symbol, "Time exit")
-
-        # Momentum fade
-        if current_momentum < pos.last_momentum * 0.6 and not pos.scale_out_done:
-            print(f"[{data.symbol}] SCALE OUT")
+                exit_reason = "Spike no breakout"
+        elif time.time() - pos.entry_time > 900:
+            exit_reason = "Time exit"
+        elif current_momentum < pos.last_momentum * 0.6 and not pos.scale_out_done:
             pos.scale_out_done = True
             self._emit_signal(data.symbol, "SCALE_OUT", data.price, {"ltp": option_ltp})
+        elif pos.type == PositionType.CE and data.price < pos.breakout_level:
+            exit_reason = "Breakout failed"
+        elif pos.type == PositionType.PE and data.price > pos.breakout_level:
+            exit_reason = "Breakdown failed"
+        elif option_ltp < pos.max_price_seen * 0.9:
+            exit_reason = "Trailing stop"
 
         pos.last_momentum = current_momentum
-
-        # Breakout failure
-        if pos.type == PositionType.CE and data.price < pos.breakout_level:
-            self.exit_trade(data.symbol, "Breakout failed")
-
-        if pos.type == PositionType.PE and data.price > pos.breakout_level:
-            self.exit_trade(data.symbol, "Breakdown failed")
-
-        # Trailing stop
-        if option_ltp < pos.max_price_seen * 0.9:
-            self.exit_trade(data.symbol, "Trailing stop")
+        
+        if exit_reason:
+            return self.exit_trade(data.symbol, exit_reason)
+        return None
 
     def exit_trade(self, symbol, reason):
         s = self.get_state(symbol)
         pos = s["position"]
-        print(f"[{symbol}] EXIT: {reason}")
         
-        # Emit signal BEFORE clearing position to capture price/state
-        self._emit_signal(symbol, "EXIT", pos.entry_price, {"reason": reason})
+        sig = self._emit_signal(symbol, "EXIT", pos.entry_price, {"reason": reason})
         
         s["position"] = Position()
         s["state"] = MarketState.NO_TRADE
         s["break_time"] = None
-
-# ===================== LOOP =====================
-if __name__ == "__main__":
-    engine = TradingEngine()
-    symbols = ["NIFTY", "MAZDOCK"]
-
-    print("--- STARTING SIMULATION ---")
-    for i in range(5):  # Simulate 5 ticks
-        for sym in symbols:
-            # Building up candle and volume buffer
-            vol = 10000 if i < 4 else 50000 
-            data = MarketData(
-                symbol=sym, price=2510, resistance=2500, support=2450,
-                atr=15, chop=40, bb_upper=2520, bb_lower=2450,
-                macd=1.5, macd_signal=0.5, pcr=0.7, 
-                call_oi=100000, put_oi=80000, 
-                call_oi_change=10000, put_oi_change=2000,
-                iv=20, volume=vol
-            )
-
-            engine.detect_state(data)
-            
-            # Mock break_time to allow entry
-            s = engine.get_state(sym)
-            if s["break_time"] is None:
-                s["break_time"] = time.time() - 70 
-
-            engine.check_entry(data)
-            
-            # Show snapshot
-            snapshot = engine.get_symbol_snapshot(sym)
-            if snapshot['state'] != "BREAKOUT_SETUP" or i == 0 or i == 4:
-                print(f"[{sym}] T{i} Snapshot: {snapshot['state']} | Pos: {snapshot['position']} | Last Sig: {snapshot['last_signal']}")
-            
-            # Simulate manual exit for demonstration
-            if snapshot['state'] == "TREND":
-                engine.exit_trade(sym, "Manual simulation exit")
-
-        time.sleep(0.05)
-    print("--- SIMULATION FINISHED ---")
+        
+        return {"action": "EXIT", "reason": reason}

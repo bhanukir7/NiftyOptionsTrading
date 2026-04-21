@@ -28,6 +28,7 @@ from nifty_options_trading.options_engine import get_option_chain, get_expiries
 from nifty_options_trading.max_pain import calculate_max_pain
 from nifty_options_trading.alerts import send_alert
 from nifty_options_trading.breakout_strategy import BreakoutStrategy, MarketData
+from nifty_options_trading.advanced_strategy import AdvancedBreakoutStrategy, MarketData as AdvMarketData
 
 class AutonomousEngine:
     """
@@ -40,6 +41,7 @@ class AutonomousEngine:
         self.stream = MarketStream(breeze)
         self.maxpain_strat = MaxPainStrategy()
         self.breakout_strat = BreakoutStrategy()
+        self.adv_strat = AdvancedBreakoutStrategy()
         
         self._is_running = False
         self._thread = None
@@ -187,6 +189,16 @@ class AutonomousEngine:
                 atr=atr, chop=56, bb_upper=bb_upper, bb_lower=bb_lower,
                 macd=1, macd_signal=0.5, pcr=pcr, call_oi=call_oi, put_oi=put_oi, iv=15
             )
+            
+            # Feed Advanced Strategy for Signal Hub observability
+            adv_data = AdvMarketData(
+                symbol=symbol, price=spot, resistance=resistance, support=support,
+                atr=atr, chop=56, bb_upper=bb_upper, bb_lower=bb_lower,
+                macd=1, macd_signal=0.5, pcr=pcr, call_oi=call_oi, put_oi=put_oi,
+                call_oi_change=0, put_oi_change=0, iv=15, volume=df.iloc[-1]["volume"] if "volume" in df.columns else 0
+            )
+            self.adv_strat.detect_state(adv_data)
+            self.adv_strat.check_entry(adv_data)
             
             action = self.breakout_strat.process_tick(market_data, spot)
             if action and action["action"] == "ENTER":

@@ -4,6 +4,21 @@
 **Release Version 4.0** — *April 13, 2026, 01:05 AM IST*
 **Release Version 5.0** — *April 13, 2026, 03:10 AM IST*
 **Release Version 6.0** — *April 14, 2026, 01:45 AM IST* (The Audit & FIFO Overhaul)
+**Release Version 7.0** — *April 21, 2026, 04:20 PM IST* (The Observability Hub)
+
+---
+
+## 📡 Version 7.0: The Observability Hub
+
+This version transforms the trading engine into a transparent, observable state machine, providing deep insights into every algorithmic decision and trade lifecycle event.
+
+### Key 7.0 Features:
+*   **📡 Signal Hub Tab**: A new dedicated dashboard tab for real-time strategy observability.
+*   **Symbol Monitor Grid**: Card-based view of every symbol in the `.env` watchlist, showing **Live State** (RANGE, BREAKOUT, TREND), **Real-time PnL estimates**, and **Volatility/Bias metrics**.
+*   **Structured Signal Stream**: Chronological feed of internal engine events: `BREAKOUT_CONFIRMED`, `ENTRY_CE/PE`, `SCALE_OUT`, `TRAIL_ACTIVE`, and `EXIT`.
+*   **Advanced Strategy Engine**: Formalized `advanced_strategy.py` which provides high-fidelity state tracking and alert-driven signals during the autonomous scan loop.
+*   **Snapshot Telemetry API**: New FastAPI endpoints for polling engine-level snapshots without triggering high-overhead market data calls.
+*   **IST-Synced Signal Logs**: All signals are timestamped with the current session's runtime for precise audit trails during live hours.
 
 ---
 
@@ -207,6 +222,7 @@ python nifty_options_trading/evaluate_contract_V2.py "HINAER 28 Apr 4600 CE"
 A detailed index of exactly what every Python file does within the `nifty_options_trading/` package:
 
 ### The Evaluator Engines
+- `advanced_strategy.py` : **Observable Strategy Provider**. Manages symbol-level state machines (RANGE/TREND) and emits structured signals for the dashboard and alerts.
 - `trade_analyzer.py` : **Performance Audit Engine**. Parses ICICI Direct F&O Trade Books with date filtering and symbol-to-contract drill-down hierarchy.
 - `evaluate_global.py` : **Global Macro Confluence Evaluator**. Integrates local Indian setups with global US/Asian market sentiment.
 - `evaluate_btst.py` : **Probabilistic BTST Engine**. Aggregates Daily Closing Strength, Put-Call Ratio, IV proxy, and Global Cues to compute a 0-100 confidence score for gap-ups.

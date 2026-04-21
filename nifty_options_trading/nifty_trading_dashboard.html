@@ -310,6 +310,7 @@
     <button class="tab-btn"        id="tab-global" onclick="switchTab('global')" role="tab">🌍 Global Macro</button>
     <button class="tab-btn"        id="tab-monitor"onclick="switchTab('monitor')"role="tab">🔭 Max-Pain Monitor</button>
     <button class="tab-btn"        id="tab-engine" onclick="switchTab('engine')" role="tab">🤖 Autonomous Engine</button>
+    <button class="tab-btn"        id="tab-advanced" onclick="switchTab('advanced')" role="tab">📡 Signal Hub</button>
     <button class="tab-btn"        id="tab-journal"onclick="switchTab('journal')"role="tab">📈 Trade Journal</button>
     <button class="tab-btn"        id="tab-risk"   onclick="switchTab('risk')"   role="tab">⚙️ Risk Engine</button>
     <button class="tab-btn"        id="tab-usage"  onclick="switchTab('usage')"  role="tab">🚦 API Status</button>
@@ -727,6 +728,42 @@
 </div>
 
 <!-- ════════════════════════════════════════════════════════════════════════
+     TAB 6.5 — SIGNAL HUB (Advanced Observability)
+     ════════════════════════════════════════════════════════════════════════════ -->
+<div id="panel-advanced" class="panel">
+  <div class="card" style="margin-bottom: 12px;">
+    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+      <span>Market Snapshot Grid</span>
+      <span style="font-size:10px; color:var(--text3);">Updates every 60s</span>
+    </div>
+    <div id="adv-snapshot-grid" class="grid g4">
+      <div style="color:var(--text3); font-size:12px;">Loading snapshots...</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Live Signal Stream (Last 100 Events)</div>
+    <div style="overflow-x:auto; max-height: 500px;">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Symbol</th>
+            <th>Signal</th>
+            <th>Price</th>
+            <th>Context</th>
+          </tr>
+        </thead>
+        <tbody id="adv-signal-body">
+          <tr><td colspan="5" style="text-align:center; color:var(--text3)">Waiting for data...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════════════════════
      TAB 7 — API USAGE
 ════════════════════════════════════════════════════════════════════════════ -->
 <div id="panel-usage" class="panel">
@@ -862,7 +899,7 @@ async function apiFetch(url, method='GET', body=null) {
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
-const TABS = ['v3','btst','daytrading','global','monitor','engine','journal','risk','usage'];
+const TABS = ['v3','btst','daytrading','global','monitor','engine','advanced','journal','risk','usage'];
 function switchTab(id) {
   TABS.forEach(t => {
     const p = g('panel-'+t);
@@ -873,6 +910,7 @@ function switchTab(id) {
   if (id === 'usage') loadUsage();
   if (id === 'global') loadWorldMarkets();
   if (id === 'engine') refreshEngineStatus();
+  if (id === 'advanced') { refreshAdvancedSignals(); refreshAdvancedSnapshots(); }
   if (id === 'journal') loadJournal();
 }
 
@@ -1677,6 +1715,83 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(loadWorldMarkets, 300000);
   setInterval(refreshEngineStatus, 3000); // Poll engine stats every 3s
 });
+// ══════════════════════════════════════════════════════════════════════════════
+//  TAB 6.5 — SIGNAL HUB logic
+// ══════════════════════════════════════════════════════════════════════════════
+async function refreshAdvancedSignals() {
+  try {
+    const data = await apiFetch('/api/engine/advanced/signals');
+    const tbody = g('adv-signal-body');
+    if (!data.signals || data.signals.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text3)">No signals emitted yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.signals.map(s => {
+      let badgeCls = 'badge-hold';
+      if (s.type.includes('ENTRY')) badgeCls = 'badge-buy';
+      if (s.type.includes('EXIT'))  badgeCls = 'badge-sell';
+      if (s.type.includes('BREAKOUT')) badgeCls = 'badge-bullish';
+      if (s.type.includes('SETUP')) badgeCls = 'badge-wait';
+      
+      return `<tr>
+        <td class="dim">${s.time}</td>
+        <td class="mono" style="font-weight:600">${s.symbol}</td>
+        <td><span class="badge ${badgeCls}">${s.type}</span></td>
+        <td class="mono">${fmtINR(s.price)}</td>
+        <td class="dim" style="font-size:10px">${JSON.stringify(s.metadata)}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    console.error("Signal fetch failed", e);
+  }
+}
+
+async function refreshAdvancedSnapshots() {
+  try {
+    const data = await apiFetch('/api/engine/advanced/snapshots');
+    const grid = g('adv-snapshot-grid');
+    if (!data.snapshots || data.snapshots.length === 0) {
+      grid.innerHTML = '<div style="color:var(--text3)">No snapshots available.</div>';
+      return;
+    }
+    grid.innerHTML = data.snapshots.map((s) => {
+      const stateCls = s.state === 'TREND' ? 'badge-buy' : s.state === 'RANGE' ? 'badge-wait' : 'badge-hold';
+      const pnlCls = s.pnl_estimate >= 0 ? 'pos' : 'neg';
+      
+      return `
+        <div class="card" style="padding:12px; background:var(--bg3)">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+             <b style="font-size:14px">${s.symbol}</b>
+             <span class="badge ${stateCls}" style="font-size:9px">${s.state}</span>
+          </div>
+          <div class="grid g2" style="font-size:11px; gap:4px">
+            <div class="dim">Pos: <span style="color:var(--text)">${s.position}</span></div>
+            <div class="dim">PnL: <span class="${pnlCls}">${fmtINR(s.pnl_estimate)}</span></div>
+            <div class="dim">Bias: <span class="${s.oi_bias==='BULLISH'?'pos':'neg'}">${s.oi_bias}</span></div>
+            <div class="dim">IV: <span style="color:var(--text)">${s.iv}</span></div>
+          </div>
+          <div style="margin-top:8px; border-top:1px solid var(--border); padding-top:4px; font-size:9px; color:var(--text3)">
+            Last: ${s.last_signal || 'None'}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    console.error("Snapshot fetch failed", e);
+  }
+}
+
+// 60-second polling for the Signal Hub
+setInterval(() => {
+  const activeTab = document.querySelector('.tab-btn.active');
+  if (activeTab && activeTab.id === 'tab-advanced') {
+    refreshAdvancedSignals();
+    refreshAdvancedSnapshots();
+  }
+}, 60000);
+
+// For the Stock Codes array used in Snapshots
+const STOCK_CODES = ["NIFTY","CNXBAN","VEDLIM","MAZDOC","RELIND","COCSHI"]; // Sync with .env fallback
 </script>
 </body>
 </html>
