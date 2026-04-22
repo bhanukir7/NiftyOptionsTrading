@@ -22,9 +22,9 @@ WORLD_INDICES = {
     "BANK NIFTY":     "^NSEBANK",
     "FIN NIFTY":      "^CNXFIN",
     "SENSEX":         "^BSESN",
-    "SENSEX BANK":    "BANKEX.BO",
+    "SENSEX BANK":    "^BSEBK",
     "GIFT NIFTY (NSE IX Proxy)": "^NSEI",
-    "INDIA VIX":      "INDIAVIX.NS",
+    "INDIA VIX":      "^INDIAVIX",
     
     # Americas
     "S&P 500":        "^GSPC",
@@ -94,12 +94,15 @@ def fetch_world_markets(ignore_cache: bool = False) -> dict:
 
         # ── Step 2: Fetch yfinance Data (Bulk) ───────────────────────────────
         import yfinance as yf
-        tickers = list(WORLD_INDICES.values())
+        # Filter: only fetch from yfinance if not already provided by Groww
+        yf_tickers = [ticker for name, ticker in WORLD_INDICES.items() if name not in groww_map]
         
-        # Download EOD baseline
-        data = yf.download(tickers, period="5d", progress=False, auto_adjust=True)["Close"]
-        if isinstance(data, pd.Series):
-            data = data.to_frame()
+        # Download EOD baseline for missing global indices
+        data = pd.DataFrame()
+        if yf_tickers:
+            data = yf.download(yf_tickers, period="5d", progress=False, auto_adjust=True)["Close"]
+            if isinstance(data, pd.Series):
+                data = data.to_frame()
 
         today_str = datetime.now().strftime("%Y-%m-%d")
         

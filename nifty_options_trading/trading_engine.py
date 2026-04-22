@@ -124,17 +124,8 @@ class AutonomousEngine:
             self._finalize_trade(symbol, reason, real_pnl)
 
     def _scan_opportunities(self):
-        # Allow multiple concurrent scans if capacity allows
-        
-        allowed, reason = can_trade(self.state, self.config)
-        if not allowed:
-            self.last_signal = {"timestamp": datetime.now().isoformat(), "signal": "BLOCKED", "reason": reason}
-            return
-
-        if not can_take_new_trade_time():
-            self.log("Market closing hours reached. Scanning suspended.")
-            return
-
+        # Allow multiple concurrent scans for observability
+        # We process symbols for the Signal Hub even if can_trade() or can_take_new_trade_time() is False
         for symbol in self.stock_codes:
             if symbol in self.state.active_positions:
                 continue # Already in a trade for this symbol
@@ -163,13 +154,35 @@ class AutonomousEngine:
             vwap = df["close"].mean() # Simplified
             bias = determine_bias(spot, vwap)
             self.state.current_bias = bias
+                    # Extract real technical values for Strategy Logic
+            # 1. ATR (Average True Range) - simplified proxy using High-Low
+            df["tr"] = (df["high"] - df["low"])
+            atr = df["tr"].rolling(14).mean().iloc[-1]
             
-            # Extract basic technically approximated values for Breakout Logic
-            atr = (df["high"] - df["low"]).mean() # Proxy
-            bb_upper = df["close"].rolling(20).mean().iloc[-1] + (2 * df["close"].rolling(20).std().iloc[-1])
-            bb_lower = df["close"].rolling(20).mean().iloc[-1] - (2 * df["close"].rolling(20).std().iloc[-1])
-            resistance = df["high"].max() # Using intraday high as resistance
-            support = df["low"].min()     # Using intraday low as support
+            # 2. Bollinger Bands
+            df["sma20"] = df["close"].rolling(20).mean()
+            df["std20"] = df["close"].rolling(20).std()
+            bb_upper = df["sma20"].iloc[-1] + (2 * df["std20"].iloc[-1])
+            bb_lower = df["sma20"].iloc[-1] - (2 * df["std20"].iloc[-1])
+            
+            # 3. MACD (12, 26, 9)
+            exp1 = df["close"].ewm(span=12, adjust=False).mean()
+            exp2 = df["close"].ewm(span=26, adjust=False).mean()
+            df["macd_line"] = exp1 - exp2
+            df["macd_signal"] = df["macd_line"].ewm(span=9, adjust=False).mean()
+            macd_val = df["macd_line"].iloc[-1]
+            macd_sig = df["macd_signal"].iloc[-1]
+            
+            # 4. Chop Index (Simplified Proxy)
+            # A value over 50-60 usually indicates sideways/choppy market
+            high_20 = df["high"].rolling(20).max()
+            low_20  = df["low"].rolling(20).min()
+            range_20 = high_20 - low_20
+            # Proxy: if standard deviation is low relative to ATR, it's choppy
+            chop_val = 60 if (df["std20"].iloc[-1] < atr * 1.5) else 40
+            
+            resistance = df["high"].max() # Day High
+            support = df["low"].min()     # Day Low
             
             # Fetch options chain to satisfy Breakout Logic requirements
             expiries = get_expiries(symbol, "CE")
@@ -182,20 +195,32 @@ class AutonomousEngine:
                 call_oi = chain_res[chain_res["right"].str.upper().isin(["CALL", "CE"])]["open_interest"].sum()
                 put_oi  = chain_res[chain_res["right"].str.upper().isin(["PUT", "PE"])]["open_interest"].sum()
                 pcr = put_oi / call_oi if call_oi > 0 else 1.0
+            
+            iv = 15 # Default
+            if chain_res is not None and not chain_res.empty:
+                # Breeze sometimes returns 'iv' or 'implied_volatility'
+                iv_col = None
+                if "iv" in chain_res.columns:
+                    iv_col = "iv"
+                elif "implied_volatility" in chain_res.columns:
+                    iv_col = "implied_volatility"
+                
+                if iv_col:
+                    iv = pd.to_numeric(chain_res[iv_col], errors='coerce').head(5).mean() or 15
 
             # Feed Breakout Strategy
             market_data = MarketData(
                 symbol=symbol, price=spot, resistance=resistance, support=support,
-                atr=atr, chop=56, bb_upper=bb_upper, bb_lower=bb_lower,
-                macd=1, macd_signal=0.5, pcr=pcr, call_oi=call_oi, put_oi=put_oi, iv=15
+                atr=atr, chop=chop_val, bb_upper=bb_upper, bb_lower=bb_lower,
+                macd=macd_val, macd_signal=macd_sig, pcr=pcr, call_oi=call_oi, put_oi=put_oi, iv=iv
             )
             
             # Feed Advanced Strategy for Signal Hub observability
             adv_data = AdvMarketData(
                 symbol=symbol, price=spot, resistance=resistance, support=support,
-                atr=atr, chop=56, bb_upper=bb_upper, bb_lower=bb_lower,
-                macd=1, macd_signal=0.5, pcr=pcr, call_oi=call_oi, put_oi=put_oi,
-                call_oi_change=0, put_oi_change=0, iv=15, volume=df.iloc[-1]["volume"] if "volume" in df.columns else 0
+                atr=atr, chop=chop_val, bb_upper=bb_upper, bb_lower=bb_lower,
+                macd=macd_val, macd_signal=macd_sig, pcr=pcr, call_oi=call_oi, put_oi=put_oi,
+                call_oi_change=0, put_oi_change=0, iv=iv, volume=df.iloc[-1]["volume"] if "volume" in df.columns else 0
             )
             self.adv_strat.detect_state(adv_data)
             self.adv_strat.check_entry(adv_data)
@@ -228,6 +253,16 @@ class AutonomousEngine:
             self.log(f"Error analyzing {symbol}: {e}")
 
     def _execute_signal(self, symbol: str, signal_data: Dict):
+        # Safety Check: only trade during allowed hours and if engine state allows
+        allowed_state, reason = can_trade(self.state, self.config)
+        if not allowed_state:
+            self.log(f"Trade blocked: {reason}")
+            return
+            
+        if not can_take_new_trade_time():
+            self.log(f"Trade blocked: Market hours closed.")
+            return
+
         opt_type = "CE" if signal_data["signal"] == "BUY_CE" else "PE"
         spot = self.stream.get_price(symbol)
         

@@ -77,6 +77,8 @@ class AdvancedBreakoutStrategy:
         return self.symbol_states[symbol]
 
     def _emit_signal(self, symbol, signal_type, price, metadata=None):
+        from nifty_options_trading.alerts import send_alert
+        
         now = time.time()
         last = self.last_signal.get(symbol, {"type": None, "timestamp": 0})
         
@@ -97,6 +99,17 @@ class AdvancedBreakoutStrategy:
             self.signal_log.pop(0)
             
         self.last_signal[symbol] = {"type": signal_type, "timestamp": now}
+
+        # Telegram Alerts for High-Priority signals
+        if signal_type in ["BREAKOUT_CONFIRMED", "ENTRY_CE", "ENTRY_PE", "SCALE_OUT", "EXIT"]:
+            side_str = metadata.get("side", "") if metadata else ""
+            reason = metadata.get("reason", "") if metadata else ""
+            msg = (f"🚨 **SIGNAL HUB ALERT [{symbol}]**\n"
+                   f"Type: {signal_type} {side_str}\n"
+                   f"Price: {price:.2f}\n"
+                   f"Context: {reason}")
+            send_alert(msg)
+
         return signal
 
     def get_symbol_snapshot(self, symbol):

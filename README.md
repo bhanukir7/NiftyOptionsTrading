@@ -5,6 +5,20 @@
 **Release Version 5.0** — *April 13, 2026, 03:10 AM IST*
 **Release Version 6.0** — *April 14, 2026, 01:45 AM IST* (The Audit & FIFO Overhaul)
 **Release Version 7.0** — *April 21, 2026, 04:20 PM IST* (The Observability Hub)
+**Release Version 7.1** — *April 23, 2026, 02:45 AM IST* (High-Fidelity Signal Refinement)
+
+---
+
+## 🚀 Version 7.1: High-Fidelity Signal Refinement
+
+This version polishes the Signal Hub and Global Macro engines, transitioning from placeholder logic to real-time, high-fidelity technical analysis and resilient API fetching.
+
+### Key 7.1 Improvements:
+*   **📡 Real-Time Indicator Integration**: Replaced all hardcoded strategy placeholders in `trading_engine.py` with real-time calculations for **ATR**, **MACD**, **Bollinger Bands**, and **Chop Index**.
+*   **🌙 24/7 Observability**: Decoupled the scanning loop from market hours. The Signal Hub now provides continuous observability using closing prices and LTP, ensuring the dashboard is never static even after hours.
+*   **⚡ Smart Hybrid Fetcher**: Optimized `global_cues.py` to prioritize **Groww** data for Indian indices and only fallback to yfinance for international tickers, eliminating redundant "Quote Not Found" console errors.
+*   **🚨 Signal Hub Telegram Alerts**: Fully integrated the `AdvancedBreakoutStrategy` with Telegram. High-conviction signals (`BREAKOUT_CONFIRMED`, `ENTRY`, `EXIT`) now trigger immediate mobile notifications.
+*   **🛡️ Fail-Safe Data Pipeline**: Implemented robust field detection for **Implied Volatility (IV)** and dynamic percentage-based Range detection (0.1% threshold) to ensure stability across both indices and small-cap stocks.
 
 ---
 
