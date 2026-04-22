@@ -8,6 +8,7 @@ import time
 import math
 from typing import Literal, Optional
 import pandas as pd
+from nifty_options_trading.groww_scraper import fetch_groww_indices
 
 # Global cache for yfinance to reduce pings
 _GLOBAL_MARKETS_CACHE = None
@@ -16,21 +17,27 @@ _GLOBAL_MARKETS_TTL = 300  # 5 minutes
 
 # Market mapping for Dashboard & BTST
 WORLD_INDICES = {
+    # India Core
+    "NIFTY 50":       "^NSEI",
     "BANK NIFTY":     "^NSEBANK",
     "FIN NIFTY":      "^CNXFIN",
-    "NIFTY MIDCAP":   "NIFTY_MIDCAP_100.NS",
-    "GIFT NIFTY (NSE IX Proxy)": "^NSEI",
     "SENSEX":         "^BSESN",
+    "SENSEX BANK":    "BANKEX.BO",
+    "GIFT NIFTY (NSE IX Proxy)": "^NSEI",
+    "INDIA VIX":      "INDIAVIX.NS",
+    
     # Americas
     "S&P 500":        "^GSPC",
     "NASDAQ":         "^IXIC",
     "Dow Jones":      "^DJI",
+    
     # Europe
     "FTSE 100":       "^FTSE",
     "DAX":            "^GDAXI",
     "CAC 40":         "^FCHI",
     "Euro Stoxx 50":  "^STOXX50E",
     "SMI (Switzerland)": "^SSMI",
+    
     # Asia
     "Nikkei 225":     "^N225",
     "Hang Seng":      "^HSI",
@@ -38,13 +45,15 @@ WORLD_INDICES = {
     "Shanghai":       "000001.SS",
     "Kospi":          "^KS11",
     "Taiwan (TWII)":  "^TWII",
+    
     # Australia
     "ASX 200":        "^AXJO",
 }
 
 REGION_MAP = {
-    "BANK NIFTY": "India", "FIN NIFTY": "India", "NIFTY MIDCAP": "India",
-    "GIFT NIFTY (NSE IX Proxy)": "India", "SENSEX": "India",
+    "NIFTY 50": "India", "BANK NIFTY": "India", "FIN NIFTY": "India",
+    "SENSEX": "India", "SENSEX BANK": "India", "GIFT NIFTY (NSE IX Proxy)": "India",
+    "INDIA VIX": "India",
     "S&P 500": "Americas", "NASDAQ": "Americas", "Dow Jones": "Americas",
     "FTSE 100": "Europe", "DAX": "Europe", "CAC 40": "Europe",
     "Euro Stoxx 50": "Europe", "SMI (Switzerland)": "Europe",
@@ -59,91 +68,104 @@ _BTST_EUROPE_TICKERS = ["^FTSE", "^GDAXI", "^FCHI"]         # FTSE 100, DAX, CAC
 _BTST_ASIA_TICKERS   = ["^N225", "^HSI", "^STI", "000001.SS", "^KS11", "^TWII"]  # Asia
 _BTST_INDIA_TICKER   = "^NSEI"                                # Nifty50 as Gift Nifty proxy
 
-def fetch_world_markets() -> dict:
-    """Fetch live quote data for world indices via yfinance with 5-min caching.
-    
-    Uses fast_info for real-time last_price / previous_close so Indian and other
-    live-session indices correctly show intraday change (not stale EOD comparison).
-    Falls back to daily OHLC pct_change for markets that are closed.
+def fetch_world_markets(ignore_cache: bool = False) -> dict:
+    """
+    Fetch world indices using a hybrid approach:
+    1. Primary: Groww Scraper (High fidelity for India + Real GIFT Nifty)
+    2. Secondary/Merge: yfinance (Coverage for missing global indices)
     """
     global _GLOBAL_MARKETS_CACHE, _GLOBAL_MARKETS_TIMESTAMP
 
     # Check cache
-    if _GLOBAL_MARKETS_CACHE and (time.time() - _GLOBAL_MARKETS_TIMESTAMP < _GLOBAL_MARKETS_TTL):
+    if not ignore_cache and _GLOBAL_MARKETS_CACHE and (time.time() - _GLOBAL_MARKETS_TIMESTAMP < _GLOBAL_MARKETS_TTL):
         return _GLOBAL_MARKETS_CACHE
 
     try:
+        # ── Step 1: Fetch Groww Data ─────────────────────────────────────────
+        groww_map = {}
+        groww_source = None
+        try:
+            groww_data = fetch_groww_indices()
+            if groww_data and groww_data.get("markets"):
+                groww_map = {m["std_name"]: m for m in groww_data["markets"]}
+                groww_source = "Groww"
+        except Exception as e:
+            print(f"Groww Scraper Error: {e}")
+
+        # ── Step 2: Fetch yfinance Data (Bulk) ───────────────────────────────
         import yfinance as yf
-
         tickers = list(WORLD_INDICES.values())
-
-        # ── Step 1: Bulk download for EOD baseline (previous close) ──────────
-        # period="5d" daily gives us ≥2 rows of closing prices for all markets.
+        
+        # Download EOD baseline
         data = yf.download(tickers, period="5d", progress=False, auto_adjust=True)["Close"]
         if isinstance(data, pd.Series):
             data = data.to_frame()
 
         today_str = datetime.now().strftime("%Y-%m-%d")
-
-        # ── Step 2: Per-ticker real-time enrichment ───────────────────────────
-        # For any ticker whose last EOD row is NOT today (i.e., market is live),
-        # pull fast_info to get the real-time last_price and previous_close.
-        results = []
+        
+        # ── Step 3: Merge and Enrich ─────────────────────────────────────────
+        final_markets = []
         for name, ticker in WORLD_INDICES.items():
+            # Priority 1: Groww (if available)
+            if name in groww_map:
+                m = groww_map[name]
+                final_markets.append({
+                    "name": name,
+                    "ticker": ticker,
+                    "region": REGION_MAP.get(name, "Other"),
+                    "last": m["last"],
+                    "prev": 0.0,
+                    "change_pct": m["change_pct"],
+                    "direction": "up" if m["change_pct"] > 0 else "down" if m["change_pct"] < 0 else "flat",
+                    "source": "Groww"
+                })
+                continue
+            
+            # Priority 2: yfinance
             lc, pc, chg = 0.0, 0.0, 0.0
             try:
-                # Check if today's data is already in the bulk download
                 col_data = data[ticker].dropna() if ticker in data.columns else pd.Series(dtype=float)
                 last_date = col_data.index[-1].strftime("%Y-%m-%d") if not col_data.empty else ""
                 eod_last  = float(col_data.iloc[-1])  if not col_data.empty else 0.0
                 eod_prev  = float(col_data.iloc[-2])  if len(col_data) >= 2 else 0.0
 
                 if last_date == today_str:
-                    # Today's EOD row exists — market closed, use bulk data
-                    lc  = eod_last
-                    pc  = eod_prev
-                    chg = ((lc - pc) / pc * 100) if pc > 0 else 0.0
+                    lc, pc = eod_last, eod_prev
                 else:
-                    # Market is currently open — use fast_info for live quote
-                    try:
-                        fi   = yf.Ticker(ticker).fast_info
-                        live = getattr(fi, "last_price", None)
-                        prev = getattr(fi, "previous_close", None)
-                        if live and prev and prev > 0:
-                            lc  = float(live)
-                            pc  = float(prev)
-                            chg = (lc - pc) / pc * 100
-                        else:
-                            # fast_info incomplete — fall back to EOD bulk data
-                            lc  = eod_last
-                            pc  = eod_prev
-                            chg = ((lc - pc) / pc * 100) if pc > 0 else 0.0
-                    except Exception:
-                        lc  = eod_last
-                        pc  = eod_prev
-                        chg = ((lc - pc) / pc * 100) if pc > 0 else 0.0
-            except Exception:
-                lc, pc, chg = 0.0, 0.0, 0.0
+                    # Enrich with fast_info for live session
+                    t_obj = yf.Ticker(ticker)
+                    info  = t_obj.fast_info
+                    lc    = info.get("last_price", eod_last)
+                    pc    = info.get("previous_close", eod_prev)
+                
+                if pc > 0:
+                    chg = ((lc - pc) / pc) * 100
+                
+                final_markets.append({
+                    "name": name,
+                    "ticker": ticker,
+                    "region": REGION_MAP.get(name, "Other"),
+                    "last": round(lc, 2),
+                    "prev": round(pc, 2),
+                    "change_pct": round(chg, 2),
+                    "direction": "up" if chg > 0.02 else "down" if chg < -0.02 else "flat",
+                    "source": "yfinance"
+                })
+            except Exception as e:
+                print(f"yfinance error for {name} ({ticker}): {e}")
 
-            # JSON safety
-            if math.isnan(chg): chg = 0.0
-            if math.isnan(lc):  lc  = 0.0
-            if math.isnan(pc):  pc  = 0.0
+        if final_markets:
+            cache_result = {
+                "markets": final_markets, 
+                "timestamp": datetime.now().isoformat(), 
+                "source": "Hybrid (Groww + yfinance)", 
+                "error": None
+            }
+            _GLOBAL_MARKETS_CACHE = cache_result
+            _GLOBAL_MARKETS_TIMESTAMP = time.time()
+            return cache_result
 
-            results.append({
-                "name":       name,
-                "ticker":     ticker,
-                "region":     REGION_MAP.get(name, "Other"),
-                "last":       round(lc, 2),
-                "prev":       round(pc, 2),
-                "change_pct": round(chg, 3),
-                "direction":  "up" if chg > 0 else "down" if chg < 0 else "flat",
-            })
-
-        cache_result = {"markets": results, "timestamp": datetime.now().isoformat(), "error": None}
-        _GLOBAL_MARKETS_CACHE = cache_result
-        _GLOBAL_MARKETS_TIMESTAMP = time.time()
-        return cache_result
+        return {"markets": [], "error": "No data fetched from any source"}
     except Exception as e:
         return {"markets": [], "timestamp": datetime.now().isoformat(), "error": str(e)}
 
@@ -157,68 +179,70 @@ def _pct_to_signal(avg_pct: float, threshold: float = 0.15) -> Literal["UP", "DO
 
 def derive_btst_cues(markets: list[dict]) -> dict:
     """
-    Derive the three BTST global cue signals from live yfinance market data.
+    Derive the BTST global cue signals with 40/60 weightage.
+    Core (40%): Nifty 50, Gift Nifty, India VIX
+    Global (60%): US, Europe, Asia
     """
-    by_ticker = {m["ticker"]: m for m in markets}
+    by_name = {m["name"]: m for m in markets}
 
-    # Gift Nifty proxy — use live Nifty 50
-    nifty_m   = by_ticker.get(_BTST_INDIA_TICKER, {})
-    nifty_pct = nifty_m.get("change_pct", 0.0)
-    gift_nifty = _pct_to_signal(nifty_pct, threshold=0.2)
+    # ── 1. Indian Core (40% Weightage) ──────────
+    n50_pct   = by_name.get("NIFTY 50", {}).get("change_pct", 0.0)
+    gift_pct  = by_name.get("GIFT NIFTY (NSE IX Proxy)", {}).get("change_pct", 0.0)
+    vix_pct   = by_name.get("INDIA VIX", {}).get("change_pct", 0.0)
+    
+    # VIX is inverted for bullishness (VIX down = bullish)
+    core_avg = (n50_pct + gift_pct - vix_pct) / 3.0
+    core_signal = _pct_to_signal(core_avg, threshold=0.15)
 
-    # US market — average of the three US indices
-    us_vals = [by_ticker[t]["change_pct"] for t in _BTST_US_TICKERS if t in by_ticker]
-    us_avg  = sum(us_vals) / len(us_vals) if us_vals else 0.0
-    us_market = _pct_to_signal(us_avg, threshold=0.15)
+    # ── 2. Global Markets (60% Weightage) ─────────
+    # US
+    us_indices = ["S&P 500", "NASDAQ", "Dow Jones"]
+    us_vals = [by_name[n]["change_pct"] for n in us_indices if n in by_name]
+    us_avg = sum(us_vals) / len(us_vals) if us_vals else 0.0
+    
+    # Europe
+    eu_indices = ["FTSE 100", "DAX", "CAC 40", "Euro Stoxx 50", "SMI (Switzerland)"]
+    eu_vals = [by_name[n]["change_pct"] for n in eu_indices if n in by_name]
+    eu_avg = sum(eu_vals) / len(eu_vals) if eu_vals else 0.0
+    
+    # Asia
+    as_indices = ["Nikkei 225", "Hang Seng", "STI (Singapore)", "Shanghai", "Kospi", "Taiwan (TWII)"]
+    as_vals = [by_name[n]["change_pct"] for n in as_indices if n in by_name]
+    as_avg = sum(as_vals) / len(as_vals) if as_vals else 0.0
+    
+    global_avg = (us_avg + eu_avg + as_avg) / 3.0
+    global_signal = _pct_to_signal(global_avg, threshold=0.15)
 
-    # Europe market — average of major European indices
-    euro_vals = [by_ticker[t]["change_pct"] for t in _BTST_EUROPE_TICKERS if t in by_ticker]
-    euro_avg  = sum(euro_vals) / len(euro_vals) if euro_vals else 0.0
-    europe_market = _pct_to_signal(euro_avg, threshold=0.15)
-
-    # Asia market — average of major Asian indices
-    asia_vals = [by_ticker[t]["change_pct"] for t in _BTST_ASIA_TICKERS if t in by_ticker]
-    asia_avg  = sum(asia_vals) / len(asia_vals) if asia_vals else 0.0
-    asia_market = _pct_to_signal(asia_avg, threshold=0.15)
+    # ── 3. Weighted Final Signal ──────────────────
+    weighted_pct = (core_avg * 0.4) + (global_avg * 0.6)
+    final_signal = _pct_to_signal(weighted_pct, threshold=0.15)
 
     return {
-        "gift_nifty":   gift_nifty,
-        "us_market":    us_market,
-        "europe_market": europe_market,
-        "asia_market":  asia_market,
+        "weighted_pct": round(weighted_pct, 3),
+        "final_signal": final_signal,
+        "gift_nifty":   _pct_to_signal(gift_pct, threshold=0.15),
+        "us_market":    _pct_to_signal(us_avg, threshold=0.15),
+        "europe_market": _pct_to_signal(eu_avg, threshold=0.15),
+        "asia_market":  _pct_to_signal(as_avg, threshold=0.15),
+        "vix":          vix_pct,
         "derived_cues": {
-            "gift_nifty": {
-                "signal": gift_nifty,
-                "source": "Nifty 50 (Proxy for GIFT Nifty on NSE IX)",
-                "pct":    round(nifty_pct, 3),
-                "indices": [{"name": nifty_m.get("name", "GIFT NIFTY (NSE IX Proxy)"), "pct": round(nifty_pct, 3)}],
-            },
-            "us_market": {
-                "signal": us_market,
-                "source": "S&P 500 + NASDAQ + Dow Jones average",
-                "pct":    round(us_avg, 3),
+            "core_india": {
+                "signal": core_signal,
+                "pct": round(core_avg, 3),
                 "indices": [
-                    {"name": by_ticker[t]["name"], "pct": round(by_ticker[t]["change_pct"], 3)}
-                    for t in _BTST_US_TICKERS if t in by_ticker
-                ],
+                    {"name": "Nifty 50", "pct": n50_pct},
+                    {"name": "Gift Nifty", "pct": gift_pct},
+                    {"name": "India VIX", "pct": vix_pct}
+                ]
             },
-            "europe_market": {
-                "signal": europe_market,
-                "source": "FTSE 100 + DAX + CAC 40 average",
-                "pct":    round(euro_avg, 3),
+            "global_market": {
+                "signal": global_signal,
+                "pct": round(global_avg, 3),
                 "indices": [
-                    {"name": by_ticker[t]["name"], "pct": round(by_ticker[t]["change_pct"], 3)}
-                    for t in _BTST_EUROPE_TICKERS if t in by_ticker
-                ],
-            },
-            "asia_market": {
-                "signal": asia_market,
-                "source": "Nikkei + Hang Seng + STI + Shanghai + Kospi + Taiwan average",
-                "pct":    round(asia_avg, 3),
-                "indices": [
-                    {"name": by_ticker[t]["name"], "pct": round(by_ticker[t]["change_pct"], 3)}
-                    for t in _BTST_ASIA_TICKERS if t in by_ticker
-                ],
-            },
-        },
+                    {"name": "US Avg", "pct": round(us_avg, 3)},
+                    {"name": "Europe Avg", "pct": round(eu_avg, 3)},
+                    {"name": "Asia Avg", "pct": round(as_avg, 3)}
+                ]
+            }
+        }
     }

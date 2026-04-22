@@ -204,58 +204,72 @@ def get_automated_global_cues() -> dict:
     cue_data = derive_btst_cues(markets)
     return cue_data
 
-def compute_btst_score(signal_data: dict, oi_data: dict, iv_data: dict, global_data: dict) -> int:
+def compute_btst_score(signal_data: dict, oi_data: dict, iv_data: dict, global_data: dict, is_put: bool = False) -> int:
     score = 0
     
     # A. Price Action (35 points)
-    if signal_data.get("macd_bullish", False):
-        score += 10
-    if signal_data.get("above_bb_mid", False):
-        score += 10
-        
-    cs = signal_data.get("close_strength", 50)
-    cs_points = int((cs / 100.0) * 15)
-    score += cs_points
+    if is_put:
+        if signal_data.get("macd_bearish", False):
+            score += 10
+        if signal_data.get("below_bb_mid", False):
+            score += 10
+        # For puts, low closing strength (closing near day low) is bearish/good for carry
+        cs = signal_data.get("close_strength", 50)
+        cs_points = int(((100 - cs) / 100.0) * 15)
+        score += cs_points
+    else:
+        if signal_data.get("macd_bullish", False):
+            score += 10
+        if signal_data.get("above_bb_mid", False):
+            score += 10
+        cs = signal_data.get("close_strength", 50)
+        cs_points = int((cs / 100.0) * 15)
+        score += cs_points
     
     # B. OI + PCR (25 points)
+    # PCR is generally bullish if high (>1.0), but extreme (>1.5) might be overextended
+    # Support below is always good for a trade (floor for calls, ceiling for puts?) 
+    # Actually, for Puts, we want "Resistance Above". 
+    # To keep it simple, we use PCR and support logic.
     if oi_data.get("support_below", False):
         score += 15
     pcr = oi_data.get("pcr", 1.0)
     if 0.8 <= pcr <= 1.2:
         score += 10
         
-    # C. IV (10 points)
+    # C. IV (10 points) - IV rising is generally good for buying options (if it continues)
     iv_p = iv_data.get("iv_percentile", 50)
     if iv_p < 60:
         score += 10
     elif iv_p > 80:
         score -= 5
         
-    # D. Global Cues (30 points)
-    gn = global_data.get("gift_nifty", "FLAT")
-    if gn == "UP":
-        score += 15
-    elif gn == "DOWN":
-        score -= 10
-        
-    us = global_data.get("us_market", "FLAT")
-    if us == "UP":
-        score += 8
-    elif us == "DOWN":
-        score -= 5
+    # D. Global Cues (30 points total)
+    # Using 40/60 Weightage between Indian Core and International
+    
+    # Core India (40% weight -> 12 points)
+    core_cue = global_data.get("derived_cues", {}).get("core_india", {})
+    core_sig = core_cue.get("signal", "FLAT")
+    
+    # International (60% weight -> 18 points)
+    global_cue = global_data.get("derived_cues", {}).get("global_market", {})
+    global_sig = global_cue.get("signal", "FLAT")
 
-    euro = global_data.get("europe_market", "FLAT")
-    if euro == "UP":
-        score += 5
-    elif euro == "DOWN":
-        score -= 3
-
-    asia = global_data.get("asia_market", "FLAT")
-    if asia == "UP":
-        score += 2
-    elif asia == "DOWN":
-        score -= 2
+    if is_put:
+        # For Puts, DOWN is good
+        if core_sig == "DOWN": score += 12
+        elif core_sig == "UP":   score -= 8
         
+        if global_sig == "DOWN": score += 18
+        elif global_sig == "UP":   score -= 12
+    else:
+        # For Calls, UP is good
+        if core_sig == "UP":     score += 12
+        elif core_sig == "DOWN": score -= 8
+        
+        if global_sig == "UP":   score += 18
+        elif global_sig == "DOWN": score -= 12
+
     return min(max(score, 0), 100)
 
 def generate_score_verdict(score: int) -> str:
@@ -305,6 +319,7 @@ def print_report(parsed: dict, opt_ltp: float, num_lots: int, lot_size: int, cap
     print(f"   IV Percentile : {iv_data.get('iv_percentile', 50)}/100")
     
     print(f"   Global Cues   : Gift Nifty={global_data.get('gift_nifty', 'FLAT')} | US={global_data.get('us_market', 'FLAT')} | Europe={global_data.get('europe_market', 'FLAT')} | Asia={global_data.get('asia_market', 'FLAT')}")
+    print(f"   India VIX     : {global_data.get('vix', 0.0):+.2f}% ({'Calm' if global_data.get('vix', 0.0) < 0 else 'Rising Fear'})")
     
     print("-" * 75)
     final_decision = generate_score_verdict(score)
@@ -361,7 +376,8 @@ def main():
     global_data = get_automated_global_cues()
     
     # 6. Compute BTST Score
-    score = compute_btst_score(signal_data, oi_data, iv_data, global_data)
+    is_put = (parsed['opt_type'] == "PE")
+    score = compute_btst_score(signal_data, oi_data, iv_data, global_data, is_put=is_put)
     
     opt_ltp = 0.0
     num_lots = 0

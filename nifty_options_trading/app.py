@@ -473,9 +473,12 @@ def _run_btst(req: BTSTRequest) -> dict:
         "us_market":     us_market,
         "europe_market": europe_market,
         "asia_market":   asia_market,
+        "vix":           cue_data.get("vix", 0.0),
+        "derived_cues":  cue_data.get("derived_cues", {}),
     }
 
-    score   = compute_btst_score(signal_data, oi_data, iv_data, global_data)
+    is_put = (req.option_type == "PE")
+    score   = compute_btst_score(signal_data, oi_data, iv_data, global_data, is_put=is_put)
     verdict = generate_score_verdict(score)
 
     # ── 4. Contract LTP ───────────────────────────────────────────────────────
@@ -492,23 +495,44 @@ def _run_btst(req: BTSTRequest) -> dict:
                 num_lots = int(req.capital / (opt_ltp * lot_size))
 
     # ── 5. Sub-score breakdown ────────────────────────────────────────────────
-    cs   = signal_data.get("close_strength", 50)
-    pcr  = oi_data.get("pcr", 1.0)
-    iv_p = iv_data.get("iv_percentile", 50)
+    is_put = (req.option_type == "PE")
+    cs     = signal_data.get("close_strength", 50)
+    pcr    = oi_data.get("pcr", 1.0)
+    iv_p   = iv_data.get("iv_percentile", 50)
 
-    sub_price_action = min(35, int(
-        (10 if signal_data.get("macd_bullish") else 0) +
-        (10 if signal_data.get("above_bb_mid") else 0) +
-        int((cs / 100.0) * 15)
-    ))
+    if is_put:
+        sub_price_action = min(35, int(
+            (10 if signal_data.get("macd_bearish") else 0) +
+            (10 if signal_data.get("below_bb_mid") else 0) +
+            int(((100 - cs) / 100.0) * 15)
+        ))
+        # Global cues scoring for Puts (Inverse)
+        gn_pts = {"UP": -10, "DOWN": 15, "FLAT": 0}[gift_nifty]
+        us_pts = {"UP": -5,  "DOWN": 8,  "FLAT": 0}[us_market]
+        eu_pts = {"UP": -3,  "DOWN": 5,  "FLAT": 0}[europe_market]
+        as_pts = {"UP": -2,  "DOWN": 2,  "FLAT": 0}[asia_market]
+    else:
+        sub_price_action = min(35, int(
+            (10 if signal_data.get("macd_bullish") else 0) +
+            (10 if signal_data.get("above_bb_mid") else 0) +
+            int((cs / 100.0) * 15)
+        ))
+        # Global cues scoring for Calls (Standard)
+        gn_pts = {"UP": 15, "DOWN": -10, "FLAT": 0}[gift_nifty]
+        us_pts = {"UP": 8,  "DOWN": -5,  "FLAT": 0}[us_market]
+        eu_pts = {"UP": 5,  "DOWN": -3,  "FLAT": 0}[europe_market]
+        as_pts = {"UP": 2,  "DOWN": -2,  "FLAT": 0}[asia_market]
+
     sub_oi = min(25, (15 if oi_data.get("support_below") else 0) + (10 if 0.8 <= pcr <= 1.2 else 0))
     sub_iv = 10 if iv_p < 60 else (-5 if iv_p > 80 else 0)
-    gn_pts = {"UP": 15, "DOWN": -10, "FLAT": 0}[gift_nifty]
-    us_pts = {"UP": 8,  "DOWN": -5,  "FLAT": 0}[us_market]
-    eu_pts = {"UP": 5,  "DOWN": -3,  "FLAT": 0}[europe_market]
-    as_pts = {"UP": 2,  "DOWN": -2,  "FLAT": 0}[asia_market]
 
-    # ── 6. Group markets by region for the UI ────────────────────────────────
+    # ── 6. Final Score (Sum of sub-scores) ───────────────────────────────────
+    # We sum the breakdown components to ensure the total matches the visualization
+    total_calculated_score = sub_price_action + sub_oi + sub_iv + gn_pts + us_pts + eu_pts + as_pts
+    score = min(max(total_calculated_score, 0), 100)
+    verdict = generate_score_verdict(score)
+
+    # ── 7. Group markets by region for the UI ────────────────────────────────
     up_count   = sum(1 for m in markets if m["direction"] == "up")
     down_count = sum(1 for m in markets if m["direction"] == "down")
 
