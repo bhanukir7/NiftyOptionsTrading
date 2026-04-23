@@ -123,8 +123,8 @@ def calculate_position_size(capital: float, premium: float, atr: float, lot_size
     """
     max_risk_per_trade = capital * config.risk_per_trade_pct
     
-    # Premium-based risk per lot
-    risk_per_lot = premium * config.sl_pct
+    # Premium-based risk per lot (accounts for units in lot)
+    risk_per_lot = premium * config.sl_pct * lot_size
     
     if risk_per_lot <= 0:
         return 0, 0.0, 0.0, 0.0

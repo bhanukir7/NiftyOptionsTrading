@@ -23,6 +23,11 @@ This version transforms the autonomous engine into a structured, hedge-fund styl
 - **📐 ATR-Based Expected Move**: Stop-Loss and Target levels are now dynamically calculated based on the **Expected Move** (`ATR / Spot`), ensuring exits are mathematically linked to volatility.
 - **💰 Premium-Based Risk Sizing**: Overhauled position sizing to calculate quantity based on the actual option premium and a fixed risk-per-trade percentage.
 - **🧪 Backtesting Validation Layer**: A new dedicated `backtester.py` module allows for historical simulation of the decision flow, tracking metrics like **Profit Factor**, **Win Rate**, and **Max Drawdown**.
+- **✅ Automated Test Suite (Pytest)**: Integrated a comprehensive suite of **28 automated tests** in the `tests/` directory. This suite validates:
+    - **Logic**: Regime detection, scoring weights, and HTF bias alignment.
+    - **Risk**: Premium-based sizing, daily profit/loss limits, and partial booking.
+    - **Performance**: Profit factor, expectancy, and drawdown stability.
+    - **Scenarios**: Full pipeline integration and edge-case resilience.
 - **🚦 Final Gate Filters**: Added VIX-based entry blocks, strict time windows (09:30-14:45), and a daily profit circuit breaker to protect capital.
 
 ---

@@ -11,7 +11,7 @@ import os
 import time
 import threading
 import logging
-from datetime import datetime, time
+from datetime import datetime, time as dt_time
 from collections import deque
 from typing import Dict, List, Optional, Literal, Tuple
 
@@ -103,7 +103,7 @@ class AutonomousEngine:
                     self._scan_opportunities()
 
                 # 3. Forced EOD Exit (After 15:20)
-                if datetime.now().time() >= time(15, 20):
+                if datetime.now().time() >= dt_time(15, 20):
                     if self.state.active_positions:
                         self.log("Forced EOD exit triggered at 15:20.")
                         symbols_to_close = list(self.state.active_positions.keys())
