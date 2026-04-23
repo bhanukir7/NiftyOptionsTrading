@@ -26,6 +26,8 @@ class Config:
     max_lots: int = 3
     late_entry_cutoff: str = "14:45"
     max_strike_distance: float = 150.0
+    vix_threshold: float = 20.0
+    daily_profit_target: float = 10000.0
 
 # --- G. Trade Execution Model (Position class) ---
 @dataclass
@@ -87,6 +89,9 @@ def can_trade(state: StateManager, config: Config = Config()) -> Tuple[bool, str
     if len(state.active_positions) >= config.max_concurrent_trades:
         return False, f"Max concurrent active positions ({config.max_concurrent_trades}) reached."
         
+    if state.daily_pnl >= config.daily_profit_target:
+        return False, f"Daily profit target ({config.daily_profit_target}) reached. Trading halted."
+
     return True, "Trading allowed."
 
 # --- E. Entry Wrapper ---
@@ -114,35 +119,35 @@ def validate_entry(signal: Literal["CE", "PE"], bias: Literal["BULLISH", "BEARIS
 # --- F. Position Sizing ---
 def calculate_position_size(capital: float, premium: float, atr: float, lot_size: int, config: Config = Config()) -> Tuple[int, float, float, float]:
     """
-    Calculates position parameters based on risk rules.
-    Returns: (Quantity, Risk Amount, Stop Loss Price, Target Price)
+    Calculates position parameters based on premium-based risk.
     """
     max_risk_per_trade = capital * config.risk_per_trade_pct
     
-    # ATR-based SL and Target
-    sl_dist = atr * 0.5
-    target_dist = atr * 1.5
-    
-    # Risk per lot based on SL distance
-    risk_per_lot = sl_dist * lot_size
+    # Premium-based risk per lot
+    risk_per_lot = premium * config.sl_pct
     
     if risk_per_lot <= 0:
         return 0, 0.0, 0.0, 0.0
         
     num_lots = int(max_risk_per_trade // risk_per_lot)
-    
-    # Apply Hard Cap on Lots
     num_lots = min(num_lots, config.max_lots)
     
     qty = num_lots * lot_size
     
+    # SL/Target distances (will be applied in trading_engine or management)
+    sl_dist = premium * config.sl_pct
+    target_dist = premium * (config.sl_pct * 2) # Default 1:2 RR if ATR not used directly here
+    
     return qty, max_risk_per_trade, sl_dist, target_dist
 
 # --- H. Trade Manager ---
-def manage_trade(position: Position, current_price: float, state: StateManager, config: Config = Config()) -> Tuple[bool, str, float]:
+def manage_trade(position: Position, current_price: float, state: StateManager, config: Config = Config(), spot: float = 0.0, atr: float = 0.0) -> Tuple[bool, str, float]:
     """
     Manages an active trade. Handles stop-losses, trailing, and partial booking.
-    Returns: (is_closed_fully, reason, realized_pnl)
+    Expected move logic from Part 12:
+    expected_move = ATR / spot
+    sl = premium * (1 - expected_move * 0.8)
+    target = premium * (1 + expected_move * 2)
     """
     if position.type == "CE":
         pnl = (current_price - position.entry_price) * position.qty
@@ -150,6 +155,16 @@ def manage_trade(position: Position, current_price: float, state: StateManager, 
     else: # PE
         pnl = (position.entry_price - current_price) * position.qty
         percent_gain = (position.entry_price - current_price) / position.entry_price
+
+    # Dynamic SL/Target adjustment if ATR/Spot provided (at inception or update)
+    if spot > 0 and atr > 0:
+        expected_move_ratio = atr / spot
+        if position.type == "CE":
+            position.sl_price = position.entry_price * (1 - expected_move_ratio * 0.8)
+            position.target_price = position.entry_price * (1 + expected_move_ratio * 2.0)
+        else:
+            position.sl_price = position.entry_price * (1 + expected_move_ratio * 0.8)
+            position.target_price = position.entry_price * (1 - expected_move_ratio * 2.0)
 
     # 1. Exit fully if SL hit
     if position.type == "CE" and current_price <= position.sl_price:

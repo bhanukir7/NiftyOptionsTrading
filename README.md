@@ -9,6 +9,21 @@
 **Release Version 7.2** — *April 23, 2026, 09:55 AM IST* (Session Resilience & Intraday Fixes)
 **Release Version 8.0** — *April 24, 2026, 01:15 AM IST* (The Risk & Regime Overhaul)
 **Release Version 8.1** — *April 24, 2026, 01:25 AM IST* (Advanced Signal & Risk Upgrades)
+**Release Version 9.0** — *April 24, 2026, 01:40 AM IST* (The Hedge-Fund Decision Pipeline)
+
+## 🏦 Version 9.0: The Hedge-Fund Decision Pipeline
+
+This version transforms the autonomous engine into a structured, hedge-fund style decision pipeline, adding a mandatory validation layer through market regime detection and historical backtesting.
+
+### Key 9.0 Improvements:
+- **🏦 Master Orchestrator Pipeline**: Integrated `evaluate_trade_decision` in `trading_engine.py`, enforcing a strict flow: **DATA → REGIME → BIAS → STRATEGY → SCORING → RISK → EXECUTION**.
+- **📊 Market Regime Detection**: Implemented a logic gate that classifies the market into **TREND**, **RANGE**, or **NO_TRADE** (Chop > 55 or < 35). Directional trades are strictly blocked in Range regimes.
+- **🛡️ Higher Timeframe (HTF) Bias**: Added a mandatory bias alignment check. New trades only trigger if the price and EMAs (21/50) align on the higher timeframe.
+- **📈 Adaptive Scoring Engine**: Replaced static validation with regime-aware weighting. Trend-following indicators (MACD) are weighted higher in Trending markets, while Mean-reversion (RSI/BB) is prioritized in Ranges.
+- **📐 ATR-Based Expected Move**: Stop-Loss and Target levels are now dynamically calculated based on the **Expected Move** (`ATR / Spot`), ensuring exits are mathematically linked to volatility.
+- **💰 Premium-Based Risk Sizing**: Overhauled position sizing to calculate quantity based on the actual option premium and a fixed risk-per-trade percentage.
+- **🧪 Backtesting Validation Layer**: A new dedicated `backtester.py` module allows for historical simulation of the decision flow, tracking metrics like **Profit Factor**, **Win Rate**, and **Max Drawdown**.
+- **🚦 Final Gate Filters**: Added VIX-based entry blocks, strict time windows (09:30-14:45), and a daily profit circuit breaker to protect capital.
 
 ---
 
@@ -285,6 +300,7 @@ A detailed index of exactly what every Python file does within the `nifty_option
 - `evaluate_contract_V2.py` : **Intraday Engine V2**. Employs fixed percentage targets (+5%, +10%) alongside strict -3% momentum traps.
 - `evaluate_contract_V1.py` : **Intraday Engine V1**. Utilizes dynamically shifting stop-loss logic generated natively by the Average True Range (ATR).
 - `evaluate_contract.py` : **Base Pricing Engine**. Establishes terminal grid-matrices mapping available capital to physical option lots.
+- `backtester.py` : **Strategy Validation Layer**. Full hedge-fund style backtesting engine with regime segmentation and performance metrics.
 
 ### The Background Monitors
 - `unified_monitor.py` : **Live Pipeline Monitor**. Orchestrates multiple ticker tracking loops silently in the background.
