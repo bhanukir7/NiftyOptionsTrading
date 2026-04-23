@@ -23,6 +23,9 @@ class Config:
     paper_trade: bool = True  # Setup for paper trade as requested
     max_concurrent_trades: int = 3
     partial_profit_pct: float = 0.5
+    max_lots: int = 3
+    late_entry_cutoff: str = "14:45"
+    max_strike_distance: float = 150.0
 
 # --- G. Trade Execution Model (Position class) ---
 @dataclass
@@ -87,8 +90,16 @@ def can_trade(state: StateManager, config: Config = Config()) -> Tuple[bool, str
     return True, "Trading allowed."
 
 # --- E. Entry Wrapper ---
-def validate_entry(signal: Literal["CE", "PE"], bias: Literal["BULLISH", "BEARISH", "NONE"], intraday_move_pct: float, config: Config = Config()) -> Tuple[bool, str]:
+def validate_entry(signal: Literal["CE", "PE"], bias: Literal["BULLISH", "BEARISH", "NONE"], intraday_move_pct: float, config: Config = Config(), current_time: Optional[datetime] = None) -> Tuple[bool, str]:
     """Validates if the entry signal aligns with bias and market conditions."""
+    if current_time is None:
+        current_time = datetime.now()
+        
+    # Time Filter: Avoid late entries
+    cutoff_h, cutoff_m = map(int, config.late_entry_cutoff.split(":"))
+    if current_time.time() >= time(cutoff_h, cutoff_m):
+        return False, f"Late entry risk: Current time {current_time.strftime('%H:%M')} exceeds cutoff {config.late_entry_cutoff}."
+
     if intraday_move_pct > config.max_intraday_move_pct:
         return False, f"Intraday move ({intraday_move_pct}%) exceeds max allowed ({config.max_intraday_move_pct}%)."
         
@@ -101,19 +112,31 @@ def validate_entry(signal: Literal["CE", "PE"], bias: Literal["BULLISH", "BEARIS
     return True, "Entry validated."
 
 # --- F. Position Sizing ---
-def calculate_position_size(capital: float, premium: float, config: Config = Config()) -> Tuple[int, float, float]:
+def calculate_position_size(capital: float, premium: float, atr: float, lot_size: int, config: Config = Config()) -> Tuple[int, float, float, float]:
     """
     Calculates position parameters based on risk rules.
-    Returns: (Quantity, Risk Amount, Stop Loss Move Amount)
+    Returns: (Quantity, Risk Amount, Stop Loss Price, Target Price)
     """
-    risk_amount = capital * config.risk_per_trade_pct
-    sl_move = premium * config.sl_pct
+    max_risk_per_trade = capital * config.risk_per_trade_pct
     
-    if sl_move <= 0:
-        return 0, 0.0, 0.0
+    # ATR-based SL and Target
+    sl_dist = atr * 0.5
+    target_dist = atr * 1.5
+    
+    # Risk per lot based on SL distance
+    risk_per_lot = sl_dist * lot_size
+    
+    if risk_per_lot <= 0:
+        return 0, 0.0, 0.0, 0.0
         
-    qty = int(risk_amount // sl_move)
-    return qty, risk_amount, sl_move
+    num_lots = int(max_risk_per_trade // risk_per_lot)
+    
+    # Apply Hard Cap on Lots
+    num_lots = min(num_lots, config.max_lots)
+    
+    qty = num_lots * lot_size
+    
+    return qty, max_risk_per_trade, sl_dist, target_dist
 
 # --- H. Trade Manager ---
 def manage_trade(position: Position, current_price: float, state: StateManager, config: Config = Config()) -> Tuple[bool, str, float]:

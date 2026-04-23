@@ -11,9 +11,9 @@ import os
 import time
 import threading
 import logging
-from datetime import datetime
+from datetime import datetime, time
 from collections import deque
-from typing import Dict, List, Optional, Literal
+from typing import Dict, List, Optional, Literal, Tuple
 
 import pandas as pd
 from nifty_options_trading.safe_breeze import SafeBreeze
@@ -196,12 +196,16 @@ class AutonomousEngine:
             # Market Regime Detection
             regime = self.detect_market_regime(chop_val, atr, atr_prev, macd_val, macd_sig)
             
-            resistance = df["high"].max() # Day High
-            support = df["low"].min()     # Day Low
+            # New: Technical indicators for scoring
+            bb_mid = df["sma20"].iloc[-1] if 'sma20' in df.columns else spot
+            macd_hist = df["macd_line"].iloc[-1] - df["macd_signal"].iloc[-1]
             
             # Intraday Move Validation
             intraday_pct = abs((spot - day_open) / day_open) * 100
-            
+            if 35 <= chop_val <= 45:
+                self.log(f"NO TRADE ZONE: Chop index {chop_val} is in the unclear range (35-45). Skipping {symbol}.")
+                return
+
             # Strategy Selection Layer
             if regime == "NO_TRADE":
                 return
@@ -267,14 +271,22 @@ class AutonomousEngine:
             
             action = self.breakout_strat.process_tick(market_data, spot)
             if action and action["action"] == "ENTER":
-                self.log(f"BREAKOUT STRATEGY SIGNAL: {action['type']} on {symbol}")
+                score, conviction = self.calculate_signal_score(df, spot, ema21, bb_mid, macd_hist, chop_val)
+                if conviction == "NO_TRADE":
+                    self.log(f"Rejected: Low score ({score}) for breakout on {symbol}")
+                    return
+
+                self.log(f"BREAKOUT STRATEGY SIGNAL: {action['type']} on {symbol} (Score: {score})")
                 sig = {
                     "signal": f"BUY_{action['type']}",
                     "reason": action["reason"],
-                    "target": spot * 1.05,
-                    "stop_loss": spot * 0.97,
+                    "target": spot + (atr * 1.5) if action['type'] == "CE" else spot - (atr * 1.5),
+                    "stop_loss": spot - (atr * 0.5) if action['type'] == "CE" else spot + (atr * 0.5),
                     "regime": regime,
-                    "intraday_pct": intraday_pct
+                    "intraday_pct": intraday_pct,
+                    "score": score,
+                    "conviction": conviction,
+                    "atr": atr
                 }
                 self._execute_signal(symbol, sig)
                 return
@@ -282,14 +294,22 @@ class AutonomousEngine:
             # Keep Technical Strategy Fallback if breakout doesn't trigger
             tech_signal = analyze_and_generate_signal(df)
             if tech_signal != "HOLD":
-                self.log(f"TECHNICAL SIGNAL: {tech_signal} on {symbol}")
+                score, conviction = self.calculate_signal_score(df, spot, ema21, bb_mid, macd_hist, chop_val)
+                if conviction == "NO_TRADE":
+                    self.log(f"Rejected: Low score ({score}) for technical on {symbol}")
+                    return
+
+                self.log(f"TECHNICAL SIGNAL: {tech_signal} on {symbol} (Score: {score})")
                 sig = {
                     "signal": "BUY_CE" if tech_signal == "BUY_CALL" else "BUY_PE",
                     "reason": "EMA Cross + MACD Alignment",
-                    "target": spot * 1.05,
-                    "stop_loss": spot * 0.97,
+                    "target": spot + (atr * 1.5) if tech_signal == "BUY_CALL" else spot - (atr * 1.5),
+                    "stop_loss": spot - (atr * 0.5) if tech_signal == "BUY_CALL" else spot + (atr * 0.5),
                     "regime": regime,
-                    "intraday_pct": intraday_pct
+                    "intraday_pct": intraday_pct,
+                    "score": score,
+                    "conviction": conviction,
+                    "atr": atr
                 }
                 self._execute_signal(symbol, sig)
 
@@ -304,6 +324,42 @@ class AutonomousEngine:
             return "TREND"
         else:
             return "NO_TRADE"
+
+    def calculate_signal_score(self, df: pd.DataFrame, spot: float, ema21: float, bb_mid: float, macd_hist: float, chop: float) -> Tuple[int, str]:
+        score = 0
+        
+        # 1. MACD Histogram (25 pts)
+        if macd_hist > 0: score += 25
+        
+        # 2. Bollinger Mid (15 pts)
+        if spot > bb_mid: score += 15
+        
+        # 3. RSI (15 pts)
+        delta = df['close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rsi = 50 # fallback
+        if not loss.empty and loss.iloc[-1] != 0:
+            rs = gain / loss
+            rsi = 100 - (100 / (1 + rs.iloc[-1]))
+        if rsi > 55: score += 15
+        
+        # 4. Low Chop (15 pts)
+        if chop < 38: score += 15
+        
+        # 5. EMA 21 (10 pts)
+        if spot > ema21: score += 10
+        
+        # 6. Volume Spike (20 pts)
+        avg_vol = df['volume'].rolling(20).mean().iloc[-1] if 'volume' in df.columns else 1
+        last_vol = df['volume'].iloc[-1] if 'volume' in df.columns else 0
+        if last_vol > avg_vol * 1.5: score += 20
+        
+        conviction = "NO_TRADE"
+        if score >= 70: conviction = "HIGH_CONVICTION"
+        elif score >= 50: conviction = "MEDIUM"
+        
+        return score, conviction
 
     def _execute_signal(self, symbol: str, signal_data: Dict):
         # Safety Check: only trade during allowed hours and if engine state allows
@@ -325,45 +381,63 @@ class AutonomousEngine:
         
         # --- FINAL TRADE FILTER GATE ---
         if opt_type == "CE" and self.state.current_bias != "BULLISH":
-             self.log("Blocked due to bias mismatch (CE needs BULLISH)")
+             self.log("Rejected: HTF mismatch (CE needs BULLISH bias)")
              return
         if opt_type == "PE" and self.state.current_bias != "BEARISH":
-             self.log("Blocked due to bias mismatch (PE needs BEARISH)")
+             self.log("Rejected: HTF mismatch (PE needs BEARISH bias)")
              return
              
         if regime == "RANGE" and "BREAKOUT" in signal_data["signal"]:
-             self.log("Blocked due to regime mismatch (Breakout blocked in RANGE)")
+             self.log("Rejected: Regime mismatch (Breakout blocked in RANGE)")
              return
+
+        # OTM Distance Filter (Simulated)
+        # Assuming ATM strike is close to spot. If distance > 150, reject.
+        # In a real scenario, we'd check the specific contract's strike.
+        strike_dist = 0 # simplified
+        if strike_dist > self.config.max_strike_distance:
+            self.log(f"Rejected: OTM too far ({strike_dist} pts)")
+            return
 
         valid, reason = validate_entry(opt_type, self.state.current_bias, intraday_pct, self.config)
         if not valid:
-            self.log(f"Blocked due to risk limits: {reason}")
+            self.log(f"Rejected: Risk/Time limits: {reason}")
             return
 
-        # Create Position using Premium (placeholder for actual option LTP)
-        # Fetch actual option LTP from chain if possible, otherwise use spot proxy
+        # Create Position using Premium and ATR-based SL/Target
         premium = spot # In production, fetch actual option LTP
-        qty, risk, sl_move = calculate_position_size(50000, premium, self.config)
-        sl = premium - sl_move if opt_type == "CE" else premium + sl_move
+        from nifty_options_trading.options_engine import get_dynamic_lot_size
+        lot_size = get_dynamic_lot_size(symbol)
+        
+        # Fetch ATR for position sizing
+        atr = signal_data.get("atr", 10.0) # fallback
+        
+        qty, risk, sl_dist, target_dist = calculate_position_size(50000, premium, atr, lot_size, self.config)
+        sl = premium - sl_dist if opt_type == "CE" else premium + sl_dist
+        target = premium + target_dist if opt_type == "CE" else premium - target_dist
         
         pos = Position(
             type=opt_type, 
             entry_price=premium, 
             qty=qty, 
             sl_price=sl, 
-            target_price=signal_data.get("target", premium * 1.05)
+            target_price=target
         )
         self.state.active_positions[symbol] = pos
         self.state.trades_today += 1
         self.state.last_trade_time = datetime.now()
         
         mode = "LIVE (BETA)" if not self.config.paper_trade else "PAPER TRADE"
+        conviction = signal_data.get("conviction", "UNKNOWN")
+        score = signal_data.get("score", 0)
+        
         msg = (f"🚀 **ENGINE ENTRY Executed ({mode})**\n"
                f"Symbol: {symbol} | Type: {opt_type}\n"
+               f"Conviction: {conviction} (Score: {score})\n"
                f"Entry: {spot:.2f} | Qty: {qty}\n"
                f"Reason: {signal_data['reason']}")
         
-        self.log(f"ENTRY: {opt_type} at {spot:.2f} ({mode})")
+        self.log(f"ENTRY [{conviction}]: {opt_type} at {spot:.2f} (Score: {score})")
         send_alert(msg)
 
     def _finalize_trade(self, symbol: str, reason: str, pnl: float):

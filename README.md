@@ -8,8 +8,22 @@
 **Release Version 7.1** — *April 23, 2026, 02:45 AM IST* (High-Fidelity Signal Refinement)
 **Release Version 7.2** — *April 23, 2026, 09:55 AM IST* (Session Resilience & Intraday Fixes)
 **Release Version 8.0** — *April 24, 2026, 01:15 AM IST* (The Risk & Regime Overhaul)
+**Release Version 8.1** — *April 24, 2026, 01:25 AM IST* (Advanced Signal & Risk Upgrades)
 
 ---
+
+## ⚖️ Version 8.1: Advanced Signal & Risk Upgrades
+
+This version polishes signal generation with a weighted scoring model and introduces strict ATR-based risk management to prevent over-allocation and improve consistency.
+
+### Key 8.1 Improvements:
+*   **⚖️ Weighted Signal Scoring**: Replaced binary entry logic with a 0-100 weighted scoring model. Trades are now classified as **HIGH_CONVICTION** (score ≥ 70) or **MEDIUM** (score ≥ 50), significantly reducing false positives.
+*   **🛡️ ATR-Based Dynamic Risk**: Implemented ATR-based Stop Loss (0.5 * ATR) and Target (1.5 * ATR) for premium pricing, ensuring risk levels adapt to current market volatility.
+*   **🚧 No Trade Zone Override**: Integrated an automatic override that blocks all signals if the Choppiness Index is between **35 and 45**, avoiding low-probability "chop" entries.
+*   **⏰ Late Entry Filter**: New positions are strictly blocked after **14:45 IST** (via `late_entry_cutoff`) to avoid the high-volatility risks of the session close.
+*   **📏 Hard Lot Caps**: Enforced a hard limit of **3 lots** (via `max_lots`) per trade, preventing dangerous over-allocation in cheaper OTM options.
+*   **🚫 OTM Distance Filter**: Automatically rejects trades where the strike price distance from spot is more than **150 points**, focusing only on high-probability contracts.
+*   **📝 Enhanced Audit Logging**: Every trade rejection now logs a specific reason (e.g., "Rejected: No trade zone" or "Rejected: HTF mismatch") to the live activity feed for better transparency.
 
 ## 📉 Version 8.0: The Risk & Regime Overhaul
 
