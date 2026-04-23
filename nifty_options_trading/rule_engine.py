@@ -22,6 +22,7 @@ class Config:
     enable_maxpain_strategy: bool = True
     paper_trade: bool = True  # Setup for paper trade as requested
     max_concurrent_trades: int = 3
+    partial_profit_pct: float = 0.5
 
 # --- G. Trade Execution Model (Position class) ---
 @dataclass
@@ -55,11 +56,11 @@ class StateManager:
         self.current_bias = "NONE"
 
 # --- C. Bias Engine ---
-def determine_bias(price: float, vwap: float) -> Literal["BULLISH", "BEARISH", "NONE"]:
-    """Determines the market bias based on price vs VWAP."""
-    if price > vwap:
+def determine_bias(price: float, vwap: float, ema21: float, ema50: float) -> Literal["BULLISH", "BEARISH", "NONE"]:
+    """Determines the market bias based on price vs VWAP and EMA alignment."""
+    if price > vwap and ema21 > ema50:
         return "BULLISH"
-    elif price < vwap:
+    elif price < vwap and ema21 < ema50:
         return "BEARISH"
     return "NONE"
 
@@ -148,7 +149,7 @@ def manage_trade(position: Position, current_price: float, state: StateManager, 
             position.sl_price = position.entry_price
             position.qty -= qty_to_book
             position.partial_booked = True
-            return False, f"Partial booked ({qty_to_book} qty), SL moved to cost.", partial_pnl
+            return False, f"Partial booked ({qty_to_book} qty) at +50% gain, SL moved to cost.", partial_pnl
             
     # 3. Trail SL after partial booking (Trail by 10%)
     if position.partial_booked:

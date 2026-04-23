@@ -546,7 +546,16 @@ def _run_btst(req: BTSTRequest) -> dict:
     # We sum the breakdown components to ensure the total matches the visualization
     total_calculated_score = sub_price_action + sub_oi + sub_iv + gn_pts + us_pts + eu_pts + as_pts
     score = min(max(total_calculated_score, 0), 100)
-    verdict = generate_score_verdict(score)
+    
+    # --- BTST GUARDRAIL ---
+    # Global cues alignment: final_signal should be UP for calls, DOWN for puts
+    global_signal = cue_data.get("final_signal", "FLAT")
+    cues_aligned = (not is_put and global_signal == "UP") or (is_put and global_signal == "DOWN")
+    
+    if score < 70 or not cues_aligned:
+        verdict = "BLOCK CARRY FORWARD (Low score or global cues mismatch)"
+    else:
+        verdict = generate_score_verdict(score)
 
     # ── 7. Group markets by region for the UI ────────────────────────────────
     up_count   = sum(1 for m in markets if m["direction"] == "up")

@@ -7,8 +7,22 @@
 **Release Version 7.0** — *April 21, 2026, 04:20 PM IST* (The Observability Hub)
 **Release Version 7.1** — *April 23, 2026, 02:45 AM IST* (High-Fidelity Signal Refinement)
 **Release Version 7.2** — *April 23, 2026, 09:55 AM IST* (Session Resilience & Intraday Fixes)
+**Release Version 8.0** — *April 24, 2026, 01:15 AM IST* (The Risk & Regime Overhaul)
 
 ---
+
+## 📉 Version 8.0: The Risk & Regime Overhaul
+
+This version introduces strict risk discipline, market regime-aware strategy selection, and corrects critical position sizing logic to stabilize P&L and prevent drawdowns during choppy markets.
+
+### Key 8.0 Improvements:
+*   **📉 Market Regime Detection**: Implemented a new detection engine in `trading_engine.py` to identify **RANGE** vs **TREND** regimes. The system now intelligently filters strategies: in RANGE mode, it strictly executes Max Pain mean-reversion and blocks directional breakout signals.
+*   **🎯 Partial Profit Booking**: Updated `rule_engine.py` to automatically book **50% quantity at +50% gain** and instantly move the Stop Loss to **Entry Price** (cost-to-cost), ensuring capital protection.
+*   **🛡️ Confluence Bias Engine**: Upgraded the bias detection to require dual alignment: **Price > VWAP** AND **EMA 21 > EMA 50** for BULLISH, and vice-versa for BEARISH.
+*   **🛑 Forced Intraday Exit**: Integrated a hard safety gate in the core loop that closes all active positions at **15:20 IST** with a "Forced EOD exit" log, eliminating unintended overnight exposure.
+*   **💰 Corrected Position Sizing**: Overhauled `calculate_position_size` to use the **actual option premium (LTP)** instead of spot price, ensuring quantity and risk-per-trade are mathematically accurate for options.
+*   **🌉 BTST Guardrails**: Refined the BTST evaluator in `app.py`. Overnight carry is now strictly blocked unless the score is **≥ 70** AND global market cues (Gift Nifty, US, Europe) are aligned with the trade direction.
+*   **📢 Detailed Rejection Logs**: Every blocked trade now logs its exact reason (e.g., "Blocked due to regime mismatch" or "Blocked due to bias mismatch") for improved audit transparency.
 
 ## 🛡️ Version 7.2: Session Resilience & Intraday Fixes
 

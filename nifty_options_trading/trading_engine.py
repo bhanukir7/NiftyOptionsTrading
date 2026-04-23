@@ -101,6 +101,16 @@ class AutonomousEngine:
                     last_60s = now
                     self._scan_opportunities()
 
+                # 3. Forced EOD Exit (After 15:20)
+                if datetime.now().time() >= time(15, 20):
+                    if self.state.active_positions:
+                        self.log("Forced EOD exit triggered at 15:20.")
+                        symbols_to_close = list(self.state.active_positions.keys())
+                        for symbol in symbols_to_close:
+                            pos = self.state.active_positions[symbol]
+                            current_price = self.stream.get_price(symbol) or pos.entry_price
+                            self._finalize_trade(symbol, "Forced EOD exit", (current_price - pos.entry_price) * pos.qty)
+
                 time.sleep(1)
             except Exception as e:
                 self.log(f"CRITICAL ENGINE ERROR: {e}")
@@ -134,15 +144,17 @@ class AutonomousEngine:
     def _analyze_symbol(self, symbol: str):
         # 1. Fetch Technical Data (from 5min historical)
         try:
+            # Add day_open fetch
+            today_start = datetime.now().strftime("%Y-%m-%dT00:00:00.000Z")
             hist_res = self.breeze.get_historical_data(
                 interval="5minute", 
-                from_date=datetime.now().strftime("%Y-%m-%dT00:00:00.000Z"),
+                from_date=today_start,
                 to_date=datetime.now().strftime("%Y-%m-%dT%H:%M:%S.000Z"),
                 stock_code=symbol,
                 exchange_code=self.exchange,
                 product_type="cash"
             )
-            if not hist_res or hist_res.get("Status") != 200: return
+            if not hist_res or hist_res.get("Status") != 200 or not hist_res.get("Success"): return
             
             df = pd.DataFrame(hist_res["Success"])
             for col in ["open", "high", "low", "close", "volume"]:
@@ -150,22 +162,26 @@ class AutonomousEngine:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
             df.dropna(subset=["close"], inplace=True)
             
+            day_open = df.iloc[0]["open"]
             spot = self.stream.get_price(symbol) or df.iloc[-1]["close"]
             vwap = df["close"].mean() # Simplified
-            bias = determine_bias(spot, vwap)
+            
+            # New: EMA21 and EMA50 for Bias
+            df["ema21"] = df["close"].ewm(span=21, adjust=False).mean()
+            df["ema50"] = df["close"].ewm(span=50, adjust=False).mean()
+            ema21 = df["ema21"].iloc[-1]
+            ema50 = df["ema50"].iloc[-1]
+            
+            bias = determine_bias(spot, vwap, ema21, ema50)
             self.state.current_bias = bias
-                    # Extract real technical values for Strategy Logic
-            # 1. ATR (Average True Range) - simplified proxy using High-Low
+            
+            # 1. ATR (Average True Range)
             df["tr"] = (df["high"] - df["low"])
-            atr = df["tr"].rolling(14).mean().iloc[-1]
+            df["atr"] = df["tr"].rolling(14).mean()
+            atr = df["atr"].iloc[-1]
+            atr_prev = df["atr"].iloc[-2] if len(df) > 1 else atr
             
-            # 2. Bollinger Bands
-            df["sma20"] = df["close"].rolling(20).mean()
-            df["std20"] = df["close"].rolling(20).std()
-            bb_upper = df["sma20"].iloc[-1] + (2 * df["std20"].iloc[-1])
-            bb_lower = df["sma20"].iloc[-1] - (2 * df["std20"].iloc[-1])
-            
-            # 3. MACD (12, 26, 9)
+            # 3. MACD
             exp1 = df["close"].ewm(span=12, adjust=False).mean()
             exp2 = df["close"].ewm(span=26, adjust=False).mean()
             df["macd_line"] = exp1 - exp2
@@ -174,15 +190,38 @@ class AutonomousEngine:
             macd_sig = df["macd_signal"].iloc[-1]
             
             # 4. Chop Index (Simplified Proxy)
-            # A value over 50-60 usually indicates sideways/choppy market
-            high_20 = df["high"].rolling(20).max()
-            low_20  = df["low"].rolling(20).min()
-            range_20 = high_20 - low_20
-            # Proxy: if standard deviation is low relative to ATR, it's choppy
+            df["std20"] = df["close"].rolling(20).std()
             chop_val = 60 if (df["std20"].iloc[-1] < atr * 1.5) else 40
+            
+            # Market Regime Detection
+            regime = self.detect_market_regime(chop_val, atr, atr_prev, macd_val, macd_sig)
             
             resistance = df["high"].max() # Day High
             support = df["low"].min()     # Day Low
+            
+            # Intraday Move Validation
+            intraday_pct = abs((spot - day_open) / day_open) * 100
+            
+            # Strategy Selection Layer
+            if regime == "NO_TRADE":
+                return
+                
+            if regime == "RANGE":
+                # ONLY use MaxPainStrategy
+                self.log(f"Market Regime: RANGE on {symbol}. Using Max Pain only.")
+                expiries = get_expiries(symbol, "CE")
+                if not expiries: return
+                expiry = expiries[0].strftime("%Y-%m-%d")
+                chain_df = get_option_chain(self.breeze, symbol, expiry)
+                if chain_df is not None and not chain_df.empty:
+                    max_pain = calculate_max_pain(chain_df)
+                    # Simple placeholder for Max Pain signal integration
+                    # In a real scenario, we'd call maxpain_strat.generate_signal()
+                    pass
+                return
+
+            # TREND regime: allow Breakout and Technical
+            self.log(f"Market Regime: TREND on {symbol}. Allowing Breakout/Technical.")
             
             # Fetch options chain to satisfy Breakout Logic requirements
             expiries = get_expiries(symbol, "CE")
@@ -211,7 +250,8 @@ class AutonomousEngine:
             # Feed Breakout Strategy
             market_data = MarketData(
                 symbol=symbol, price=spot, resistance=resistance, support=support,
-                atr=atr, chop=chop_val, bb_upper=bb_upper, bb_lower=bb_lower,
+                atr=atr, chop=chop_val, bb_upper=bb_upper if 'bb_upper' in locals() else spot*1.01, 
+                bb_lower=bb_lower if 'bb_lower' in locals() else spot*0.99,
                 macd=macd_val, macd_signal=macd_sig, pcr=pcr, call_oi=call_oi, put_oi=put_oi, iv=iv
             )
             
@@ -232,7 +272,9 @@ class AutonomousEngine:
                     "signal": f"BUY_{action['type']}",
                     "reason": action["reason"],
                     "target": spot * 1.05,
-                    "stop_loss": spot * 0.97
+                    "stop_loss": spot * 0.97,
+                    "regime": regime,
+                    "intraday_pct": intraday_pct
                 }
                 self._execute_signal(symbol, sig)
                 return
@@ -245,12 +287,23 @@ class AutonomousEngine:
                     "signal": "BUY_CE" if tech_signal == "BUY_CALL" else "BUY_PE",
                     "reason": "EMA Cross + MACD Alignment",
                     "target": spot * 1.05,
-                    "stop_loss": spot * 0.97
+                    "stop_loss": spot * 0.97,
+                    "regime": regime,
+                    "intraday_pct": intraday_pct
                 }
                 self._execute_signal(symbol, sig)
 
         except Exception as e:
             self.log(f"Error analyzing {symbol}: {e}")
+
+    def detect_market_regime(self, chop, atr, atr_prev, macd, macd_signal):
+        threshold = 0.5 # MACD threshold
+        if chop > 55:
+            return "RANGE"
+        elif abs(macd - macd_signal) > threshold and atr > atr_prev:
+            return "TREND"
+        else:
+            return "NO_TRADE"
 
     def _execute_signal(self, symbol: str, signal_data: Dict):
         # Safety Check: only trade during allowed hours and if engine state allows
@@ -267,24 +320,38 @@ class AutonomousEngine:
         spot = self.stream.get_price(symbol)
         
         # Risk Check
-        day_open = spot # simple placeholder
-        intraday_pct = 0.5
-        valid, reason = validate_entry(opt_type, self.state.current_bias, intraday_pct, self.config)
+        intraday_pct = signal_data.get("intraday_pct", 0.5)
+        regime = signal_data.get("regime", "TREND")
         
+        # --- FINAL TRADE FILTER GATE ---
+        if opt_type == "CE" and self.state.current_bias != "BULLISH":
+             self.log("Blocked due to bias mismatch (CE needs BULLISH)")
+             return
+        if opt_type == "PE" and self.state.current_bias != "BEARISH":
+             self.log("Blocked due to bias mismatch (PE needs BEARISH)")
+             return
+             
+        if regime == "RANGE" and "BREAKOUT" in signal_data["signal"]:
+             self.log("Blocked due to regime mismatch (Breakout blocked in RANGE)")
+             return
+
+        valid, reason = validate_entry(opt_type, self.state.current_bias, intraday_pct, self.config)
         if not valid:
-            self.log(f"Signal filtered: {reason}")
+            self.log(f"Blocked due to risk limits: {reason}")
             return
 
-        # Create Position
-        qty, risk, sl_move = calculate_position_size(50000, spot, self.config)
-        sl = spot - sl_move if opt_type == "CE" else spot + sl_move
+        # Create Position using Premium (placeholder for actual option LTP)
+        # Fetch actual option LTP from chain if possible, otherwise use spot proxy
+        premium = spot # In production, fetch actual option LTP
+        qty, risk, sl_move = calculate_position_size(50000, premium, self.config)
+        sl = premium - sl_move if opt_type == "CE" else premium + sl_move
         
         pos = Position(
             type=opt_type, 
-            entry_price=spot, 
+            entry_price=premium, 
             qty=qty, 
             sl_price=sl, 
-            target_price=signal_data.get("targets", {}).get("t1", spot*1.05)
+            target_price=signal_data.get("target", premium * 1.05)
         )
         self.state.active_positions[symbol] = pos
         self.state.trades_today += 1
