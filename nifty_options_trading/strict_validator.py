@@ -23,10 +23,15 @@ def validate_strict_signal(df: pd.DataFrame) -> dict:
     for col in ["open", "high", "low", "close", "volume"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
-    df = df.dropna(subset=["close", "volume"]).reset_index(drop=True)
+    
+    # Fill missing volume with 0 (Indices like NIFTY often have no volume in cash segment)
+    if "volume" in df.columns:
+        df["volume"] = df["volume"].fillna(0)
+        
+    df = df.dropna(subset=["close"]).reset_index(drop=True)
 
-    # Guard: after cleaning, ensure sufficient rows remain
-    if len(df) < 2:
+    # Guard: after cleaning, ensure sufficient rows remain for indicators (EMA21, RSI14, etc.)
+    if len(df) < 30:
         return {
             "signal": "NO TRADE",
             "confidence": 0,
@@ -109,17 +114,27 @@ def validate_strict_signal(df: pd.DataFrame) -> dict:
             if v: reasons.append(f"{k.upper()}: Conforming ({bias})")
             else: reasons.append(f"{k.upper()}: Failed ({bias} requirement)")
 
-    return {
+    # Ensure all indicator values are JSON-serializable (no NaN/Inf)
+    def clean_val(v):
+        import math
+        try:
+            if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+                return 0
+            return v
+        except: return 0
+
+    res = {
         "signal": signal,
         "confidence": int(confidence),
         "reasons": reasons,
         "indicators": {
-            "price": round(price, 2),
-            "ema9": round(ema9, 2),
-            "ema21": round(ema21, 2),
-            "vwap": round(vwap, 2),
-            "rsi": round(curr_rsi, 2),
-            "volume": int(current_volume),
-            "avg_volume": int(avg_volume_10)
+            "price": round(clean_val(price), 2),
+            "ema9": round(clean_val(ema9), 2),
+            "ema21": round(clean_val(ema21), 2),
+            "vwap": round(clean_val(vwap), 2),
+            "rsi": round(clean_val(curr_rsi), 2),
+            "volume": int(clean_val(current_volume)),
+            "avg_volume": int(clean_val(avg_volume_10))
         }
     }
+    return res

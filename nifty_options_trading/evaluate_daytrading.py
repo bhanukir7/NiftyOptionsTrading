@@ -33,8 +33,11 @@ def analyze_daytrading_signals(df: pd.DataFrame) -> dict:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
     
-    # Fill any NAs from conversion
-    df = df.copy().dropna(subset=["close", "volume"])
+    # Fill any NAs from conversion (Volume is often empty for Indices)
+    if "volume" in df.columns:
+        df["volume"] = df["volume"].fillna(0)
+    
+    df = df.copy().dropna(subset=["close"])
     
     if len(df) < 50:
         return {
@@ -180,22 +183,31 @@ def analyze_daytrading_signals(df: pd.DataFrame) -> dict:
     elif is_bear_confirmed:
         reason = "Bear trend confirmed via EMA 9/21. Looking for specific entry trigger (VWAP/MACD)."
 
+    # Ensure all indicator values are JSON-serializable (no NaN/Inf)
+    def clean_val(v):
+        import math
+        try:
+            if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+                return 0
+            return v
+        except: return 0
+
     return {
         "signal": signal,
         "reason": reason,
         "trend": trend_state,
         "indicators": {
-            "short_ma": round(latest["short_ma"], 2),
-            "long_ma": round(latest["long_ma"], 2),
-            "rsi": round(latest["rsi"], 2),
-            "smoothed_rsi": round(latest["smoothed_rsi"], 2),
-            "vwap": round(latest["vwap"], 2),
-            "macd_hist": round(latest["macd_hist"], 4),
-            "ema_delta": round(latest["ema_delta"], 2),
-            "volume_ratio": round(latest["volume"] / (latest["avg_volume"] or 1), 2),
-            "atr_ratio": round(latest["atr"] / (latest["avg_atr"] or 1), 2)
+            "short_ma": round(clean_val(latest["short_ma"]), 2),
+            "long_ma": round(clean_val(latest["long_ma"]), 2),
+            "rsi": round(clean_val(latest["rsi"]), 2),
+            "smoothed_rsi": round(clean_val(latest["smoothed_rsi"]), 2),
+            "vwap": round(clean_val(latest["vwap"]), 2),
+            "macd_hist": round(clean_val(latest["macd_hist"]), 4),
+            "ema_delta": round(clean_val(latest["ema_delta"]), 2),
+            "volume_ratio": round(clean_val(latest["volume"] / (latest["avg_volume"] or 1)), 2),
+            "atr_ratio": round(clean_val(latest["atr"] / (latest["avg_atr"] or 1)), 2)
         },
-        "close": latest["close"]
+        "close": clean_val(latest["close"])
     }
 
 def generate_daytrading_verdict(signal_data: dict, opt_type: str) -> str:

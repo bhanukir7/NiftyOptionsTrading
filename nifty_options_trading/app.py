@@ -111,6 +111,21 @@ class EngineModeRequest(BaseModel):
     paper_trade: bool
 
 
+# ── UTILS ────────────────────────────────────────────────────────────────────
+def clean_json_data(o):
+    """Recursively replace NaN/Inf with 0 for JSON serialization."""
+    import math
+    if isinstance(o, dict):
+        return {k: clean_json_data(v) for k, v in o.items()}
+    elif isinstance(o, (list, tuple)):
+        return [clean_json_data(x) for x in o]
+    elif isinstance(o, float):
+        if math.isnan(o) or math.isinf(o):
+            return 0.0
+        return o
+    return o
+
+
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup_event():
@@ -395,7 +410,7 @@ def _run_daytrading(req: DayTradingRequest) -> dict:
                 })
 
     breeze.log_api_usage()
-    return {
+    res = {
         "symbol": stock_code,
         "spot": round(spot_price, 2),
         "expiry": req.expiry,
@@ -409,6 +424,7 @@ def _run_daytrading(req: DayTradingRequest) -> dict:
         "strikes": strikes_data,
         "timestamp": datetime.now().isoformat(),
     }
+    return clean_json_data(res)
 
 
 @app.post("/api/daytrading/analyze")
@@ -1099,7 +1115,7 @@ def _run_strict_analysis(req: StrictRequest) -> dict:
                          "tag": "ATM" if abs(float(row["strike_price"]) - atm_strike) < 1 else "ITM/OTM"
                      })
 
-    return {
+    res = {
         "symbol": stock_code,
         "signal": strict_res["signal"],
         "confidence": strict_res["confidence"],
@@ -1109,6 +1125,7 @@ def _run_strict_analysis(req: StrictRequest) -> dict:
         "strikes": strikes_data,
         "timestamp": datetime.now().isoformat()
     }
+    return clean_json_data(res)
 
 @app.post("/api/strict/analyze")
 async def strict_analyze(req: StrictRequest):

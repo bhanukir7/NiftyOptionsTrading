@@ -6,6 +6,19 @@
 **Release Version 6.0** — *April 14, 2026, 01:45 AM IST* (The Audit & FIFO Overhaul)
 **Release Version 7.0** — *April 21, 2026, 04:20 PM IST* (The Observability Hub)
 **Release Version 7.1** — *April 23, 2026, 02:45 AM IST* (High-Fidelity Signal Refinement)
+**Release Version 7.2** — *April 23, 2026, 09:55 AM IST* (Session Resilience & Intraday Fixes)
+
+---
+
+## 🛡️ Version 7.2: Session Resilience & Intraday Fixes
+
+This version focuses on operational resilience, fixing a critical bottleneck in the session management flow and restoring full functionality to the Day Trading analysis tab for Indian indices.
+
+### Key 7.2 Improvements:
+*   **⌨️ Non-Blocking Session Capture**: Integrated `msvcrt` into `session_manager.py` to enable immediate manual URL entry. You can now press any key in the terminal to paste a redirect URL, bypassing the 5-minute blocking wait for automatic capture.
+*   **📈 Index Volume Resolution**: Fixed the "Insufficient clean data" error in `strict_validator.py` and `evaluate_daytrading.py`. The engine now correctly handles indices (NIFTY/BANKNIFTY) by treating missing cash volume as `0.0` instead of dropping the dataset.
+*   **🧼 NaN-Proof API Layer**: Implemented a recursive `clean_json_data` utility in `app.py`. This sanitizes all outgoing API responses by replacing `NaN` and `Infinity` with `0.0`, preventing dashboard crashes during high-volatility gaps or early-session warmups.
+*   **⚙️ Indicator Buffer Optimization**: Increased the minimum data guard to 30 rows in the strict validator to ensure high-conviction technical indicators like RSI and EMA have sufficient history to generate valid signals.
 
 ---
 
