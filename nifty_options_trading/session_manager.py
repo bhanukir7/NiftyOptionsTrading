@@ -6,6 +6,9 @@ from urllib.parse import urlparse, parse_qs, quote, urlencode
 from pathlib import Path
 from dotenv import load_dotenv, set_key
 
+if os.name == 'nt':
+    import msvcrt
+
 # ── Path Setup ────────────────────────────────────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH  = REPO_ROOT / ".env"
@@ -55,18 +58,25 @@ def capture_session_token(api_key, port=8080):
     start_time = time.time()
     print(f"[SessionManager] (If the browser shows an error or doesn't redirect, you can manually paste the full redirect URL here).")
     
-    server.timeout = 1.0 # Allow checking for manual input or timeout
+    server.timeout = 0.5 # Allow checking for manual input or timeout
     while not server.token:
         server.handle_request()
-        if time.time() - start_time > 300:
-            print(" [!] Timeout: No login detected within 5 minutes.")
-            # Fallback to manual entry if automatic fails
-            manual_url = input("\n[SessionManager] Automatic capture failed. Please paste the full redirect URL (the one with 'apisession='): ").strip()
+        
+        # Non-blocking manual input check (Windows)
+        if os.name == 'nt' and msvcrt.kbhit():
+            print("\n[SessionManager] Manual entry triggered. Please paste the full redirect URL:")
+            manual_url = input("> ").strip()
             if "apisession=" in manual_url:
                 query = urlparse(manual_url).query
                 params = parse_qs(query)
                 if "apisession" in params:
-                    return params["apisession"][0]
+                    server.token = params["apisession"][0]
+                    break
+            else:
+                print("[!] Invalid URL. Still waiting for automatic redirect or another manual attempt...")
+
+        if time.time() - start_time > 300:
+            print(" [!] Timeout: No login detected within 5 minutes.")
             return None
             
     return server.token
