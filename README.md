@@ -10,8 +10,22 @@
 **Release Version 8.0** — *April 24, 2026, 01:15 AM IST* (The Risk & Regime Overhaul)
 **Release Version 8.1** — *April 24, 2026, 01:25 AM IST* (Advanced Signal & Risk Upgrades)
 **Release Version 9.0** — *April 24, 2026, 01:40 AM IST* (The Hedge-Fund Decision Pipeline)
+**Release Version 10.0** — *April 24, 2026, 12:30 PM IST* (The Observability & Efficiency Overhaul)
 
-## 🏦 Version 9.0: The Hedge-Fund Decision Pipeline
+## 🚀 Version 10.0: The Observability & Efficiency Overhaul
+
+This version focuses on operational efficiency, reducing API overhead, and providing full transparency into the autonomous engine's decision-making process.
+
+### Key 10.0 Improvements:
+- **⚡ 5-Minute Scan Optimization**: Slowed down the `AutonomousEngine` scanning loop from 1 minute to **5 minutes**. This aligns with 5-minute technical indicators and reduces API call frequency by **80%**, significantly protecting your ICICI Breeze rate limits.
+- **📡 Signal Hub Transparency**: Integrated the `AdvancedBreakoutStrategy` into the main engine loop. The **Signal Hub** now provides real-time analysis for all tracked symbols.
+- **📝 Descriptive Decision Logs**: Every signal in the hub now includes a detailed **Reason** (e.g., *"Idle - Within Range"* or *"Bullish Setup - Price > Resistance"*), eliminating the "black box" feel of the autonomous engine.
+- **📈 ATR-Based IV Proxy**: Implemented a volatility estimation engine in `trading_engine.py` that calculates an **IV Proxy** using 5-minute ATR. This ensures the Signal Hub reflects realistic volatility metrics for all symbols without requiring extra API calls.
+- **🛠️ Service Resilience (Windows)**: Added `watchfiles` support for reliable file monitoring on Windows and implemented a **Graceful Shutdown** in `app.py` to prevent WebSocket disconnect errors from crashing the auto-reload process.
+- **🚨 Stabilized Telegram Alerts**: Updated the alert system with Markdown escaping to prevent parsing errors (400 Bad Request) caused by underscores in signal types like `NO_TRADE`.
+
+---
+
 
 This version transforms the autonomous engine into a structured, hedge-fund style decision pipeline, adding a mandatory validation layer through market regime detection and historical backtesting.
 

@@ -97,8 +97,8 @@ class AutonomousEngine:
                     if self.state.active_positions:
                         self._manage_active_positions()
 
-                # 2. Scanning Loop (Every 60s)
-                if now - last_60s >= 60:
+                # 2. Scanning Loop (Every 300s / 5m)
+                if now - last_60s >= 300:
                     last_60s = now
                     self._scan_opportunities()
 
@@ -231,8 +231,33 @@ class AutonomousEngine:
             
             result = self.evaluate_trade_decision(decision_data)
             
+            # --- SIGNAL HUB INTEGRATION ---
+            # Construct levels (using simple high/low or placeholders for now)
+            resistance = df["high"].max()
+            support = df["low"].min()
+            
+            # Estimate IV from ATR proxy (annualised)
+            # sqrt(75 bars/day * 252 days/year) approx 137.5
+            iv_estimate = (atr / spot) * 137.5 * 100 if spot > 0 else 0
+            
+            adv_data = AdvMarketData(
+                symbol=symbol,
+                price=spot,
+                resistance=resistance,
+                support=support,
+                atr=atr,
+                chop=chop_val,
+                bb_upper=0, bb_lower=0, # placeholders
+                macd=macd_val,
+                macd_signal=macd_sig,
+                pcr=1.0, # Placeholder
+                call_oi=0, put_oi=0, # placeholders
+                iv=iv_estimate
+            )
+            self.adv_strat.detect_state(adv_data)
+            
             if result["decision"] == "NO_TRADE":
-                # self.log(f"Scan {symbol}: NO_TRADE - {result['reason']}")
+                self.log(f"Scan {symbol}: NO_TRADE - {result['reason']}")
                 return
 
             self.log(f"DECISION ENGINE: {result['decision']} on {symbol} (Score: {result['score']}, Regime: {result['regime']})")

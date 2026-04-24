@@ -101,7 +101,7 @@ class AdvancedBreakoutStrategy:
         self.last_signal[symbol] = {"type": signal_type, "timestamp": now}
 
         # Telegram Alerts for High-Priority signals
-        if signal_type in ["BREAKOUT_CONFIRMED", "ENTRY_CE", "ENTRY_PE", "SCALE_OUT", "EXIT"]:
+        if signal_type in ["BREAKOUT_CONFIRMED", "ENTRY_CE", "ENTRY_PE", "SCALE_OUT", "EXIT", "SETUP_DETECTED", "RANGE_DETECTED"]:
             side_str = metadata.get("side", "") if metadata else ""
             reason = metadata.get("reason", "") if metadata else ""
             msg = (f"🚨 **SIGNAL HUB ALERT [{symbol}]**\n"
@@ -136,15 +136,26 @@ class AdvancedBreakoutStrategy:
 
     def detect_state(self, data: MarketData):
         s = self.get_state(data.symbol)
-        if data.chop > 55 and data.atr < 10:
+        if s["state"] == MarketState.TREND:
+            return # Let manage_trade handle it
+
+        reason = ""
+        if data.chop > 55:
             s["state"] = MarketState.RANGE
-            self._emit_signal(data.symbol, "RANGE_DETECTED", data.price)
-        elif data.price > data.resistance or data.price < data.support:
+            reason = f"Choppy Market (Chop: {data.chop:.1f})"
+            self._emit_signal(data.symbol, "RANGE_DETECTED", data.price, {"reason": reason})
+        elif data.price > data.resistance:
             s["state"] = MarketState.BREAKOUT_SETUP
-            self._emit_signal(data.symbol, "SETUP_DETECTED", data.price)
+            reason = f"Bullish Setup - Price ({data.price:.1f}) > Res ({data.resistance:.1f})"
+            self._emit_signal(data.symbol, "SETUP_DETECTED", data.price, {"reason": reason, "side": "UP"})
+        elif data.price < data.support:
+            s["state"] = MarketState.BREAKOUT_SETUP
+            reason = f"Bearish Setup - Price ({data.price:.1f}) < Supp ({data.support:.1f})"
+            self._emit_signal(data.symbol, "SETUP_DETECTED", data.price, {"reason": reason, "side": "DOWN"})
         else:
             s["state"] = MarketState.NO_TRADE
-            self._emit_signal(data.symbol, "NO_TRADE", data.price)
+            reason = f"Idle - Within Range ({data.support:.1f} - {data.resistance:.1f})"
+            self._emit_signal(data.symbol, "NO_TRADE", data.price, {"reason": reason})
         
         s["last_pcr"] = data.pcr
         s["last_iv"] = data.iv

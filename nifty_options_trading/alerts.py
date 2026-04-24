@@ -23,10 +23,12 @@ def send_alert(message: str):
     # Send to telegram if configured
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         try:
+            # Escape underscores for Telegram Markdown (v1)
+            safe_message = message.replace("_", "\\_")
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
             payload = {
                 "chat_id": TELEGRAM_CHAT_ID,
-                "text": message,
+                "text": safe_message,
                 "parse_mode": "Markdown"
             }
             response = requests.post(url, json=payload)

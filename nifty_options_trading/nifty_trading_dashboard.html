@@ -734,7 +734,7 @@
   <div class="card" style="margin-bottom: 12px;">
     <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
       <span>Market Snapshot Grid</span>
-      <span style="font-size:10px; color:var(--text3);">Updates every 60s</span>
+      <span style="font-size:10px; color:var(--text3);">Updates every 10m</span>
     </div>
     <div id="adv-snapshot-grid" class="grid g4">
       <div style="color:var(--text3); font-size:12px;">Loading snapshots...</div>
@@ -1788,10 +1788,9 @@ setInterval(() => {
     refreshAdvancedSignals();
     refreshAdvancedSnapshots();
   }
-}, 60000);
+}, 600000);
 
-// For the Stock Codes array used in Snapshots
-const STOCK_CODES = ["NIFTY","CNXBAN","VEDLIM","MAZDOC","RELIND","COCSHI"]; // Sync with .env fallback
+
 </script>
 </body>
 </html>

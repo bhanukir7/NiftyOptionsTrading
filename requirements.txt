@@ -10,3 +10,5 @@ uvicorn>=0.29.0
 lxml>=4.9.0
 html5lib>=1.1
 pytest>=8.0.0
+watchfiles>=0.21.0
+

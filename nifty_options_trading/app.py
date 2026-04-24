@@ -164,7 +164,10 @@ async def startup_event():
 @app.on_event("shutdown")
 def shutdown_event():
     if _engine:
-        _engine.stop()
+        try:
+            _engine.stop()
+        except Exception as e:
+            print(f"[app.py] Warning: Error during engine shutdown: {e}")
 
 
 # ── Helper: get authenticated Breeze instance ─────────────────────────────────
