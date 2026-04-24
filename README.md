@@ -10,7 +10,23 @@
 **Release Version 8.0** — *April 24, 2026, 01:15 AM IST* (The Risk & Regime Overhaul)
 **Release Version 8.1** — *April 24, 2026, 01:25 AM IST* (Advanced Signal & Risk Upgrades)
 **Release Version 9.0** — *April 24, 2026, 01:40 AM IST* (The Hedge-Fund Decision Pipeline)
+**Release Version 11.0** — *April 24, 2026, 05:45 PM IST* (The Multi-Broker & Automation Overhaul)
 **Release Version 10.0** — *April 24, 2026, 12:30 PM IST* (The Observability & Efficiency Overhaul)
+
+## 🔌 Version 11.0: The Multi-Broker & Automation Overhaul
+
+This major version transitions the suite from a single-broker tool to a modular, broker-agnostic trading platform, featuring fully automated authentication and support for Angle One (SmartAPI).
+
+### Key 11.0 Improvements:
+- **🔌 Broker-Agnostic Architecture**: Introduced a unified `BaseBroker` interface. The entire engine (Signal Hub, Strategies, Risk Engine) is now decoupled from the ICICI Breeze API, allowing for plug-and-play support for any broker.
+- **📐 Angle One (SmartAPI) Integration**: Full native support for Angle One. Access live market data, historical candles, and order placement with zero monthly API fees.
+- **🤖 100% Silent Authentication**: Implemented TOTP-based automated login for Angle One. The system now generates its own 2FA codes using `pyotp`, enabling truly autonomous "lights-out" operation without manual browser redirects.
+- **📊 Unified Data Normalization**: Created a translation layer that standardizes data formats across different brokers. Whether you use ICICI or Angle One, your technical indicators and dashboards receive identical, high-fidelity data.
+- **📜 Smart Scrip Mapping**: Integrated an automated Instrument Master downloader for Angle One that maps millions of tokens to human-readable symbols in real-time.
+- **🛠️ Windows Environment Stability**: Fixed a critical `uvicorn` argument conflict on Windows and optimized the auto-reload process for better performance during development.
+- **📦 Automated Dependency Management**: Added `smartapi-python`, `pyotp`, and `logzero` to the core requirements with automated installation checks during startup.
+
+---
 
 ## 🚀 Version 10.0: The Observability & Efficiency Overhaul
 
@@ -335,10 +351,12 @@ A detailed index of exactly what every Python file does within the `nifty_option
 
 ### Network & API Infrastructure
 - `run.py` : **Universal Startup Launcher**. Handles environment bootstrapping, PYTHONPATH resolution, and optimized Uvicorn reload parameters for Windows.
-- `safe_breeze.py` : **API Core Wrapper**. Redirects logic to local cache blocks or gracefully queues requests under active ICICIdirect limits.
+- `broker_interface.py` : **Unified Broker ABC**. Defines the standard interface for all supported brokerage platforms.
+- `safe_smartapi.py` : **Angle One Wrapper**. Implements the SmartAPI with automated scrip master mapping and TOTP authentication.
+- `safe_breeze.py` : **ICICI Breeze Wrapper**. Refactored to implement the `BaseBroker` interface while maintaining legacy rate limiting.
 - `api_rate_limiter.py` : **Persistent Quota Queue**. Algorithmic rate restrictor mapping usage dynamically across runs (via `logs/api_usage.json`).
 - `cache_manager.py` : **TTL Memory Cache**. Eliminates redundant polling by statically saving data in local system RAM.
-- `market_stream.py` : **WebSocket Integrator**. Circumvents REST API bottlenecks entirely by subscribing to a standard native price stream.
+- `market_stream.py` : **Unified WebSocket Integrator**. Broker-agnostic price stream handling for real-time dashboard updates.
 
 ### Web & UI Layer
 - `app.py` : **FastAPI Master Server**. The central brain of the Version 2.0 suite. Exposes all analytical modules via a RESTful API.

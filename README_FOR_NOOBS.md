@@ -6,7 +6,7 @@ Welcome! This guide is for traders who want to run this powerful dashboard on th
 
 ## 🏗️ Step 1: Install Python (The Engine)
 Your laptop needs Python to run the code.
-1. Download **Python 3.11 or 3.12** from [python.org](https://www.python.org/downloads/windows/).
+1. Download **Python 3.11, 3.12, or 3.13** from [python.org](https://www.python.org/downloads/windows/).
 2. **IMPORTANT**: During installation, check the box that says **"Add Python to PATH"**. If you skip this, the tool won't work!
 3. Click "Install Now" and wait for it to finish.
 
@@ -23,14 +23,23 @@ Your laptop needs Python to run the code.
    ```
    *Wait for all the colorful bars to finish loading.*
 
-## 🔑 Step 4: Add your API Keys
-You need an ICICI Direct Breeze API key.
+## 🔑 Step 4: Add your API Keys (Choose your Broker)
+The tool now supports both **ICICI Breeze** and **Angle One (SmartAPI)**.
+
 1. In the folder, find the file named `.env.example`.
 2. Right-click it and choose **Open with Notepad**.
 3. Fill in your details:
-   - `API_KEY`: From your ICICI Breeze terminal.
-   - `API_SECRET`: From your ICICI Breeze terminal.
-   - `SESSION_TOKEN`: You've generated this for the day.
+   - **`BROKER_TYPE`**: Set this to `ICICI_BREEZE` or `ANGLE_ONE`.
+   
+   **For ICICI Users:**
+   - Fill in `API_KEY` and `API_SECRET`.
+   - `SESSION_TOKEN`: You still need to update this daily from your Breeze terminal.
+   
+   **For Angle One Users (Highly Recommended):**
+   - Fill in `ANGLE_API_KEY`, `CLIENT_CODE`, and `PASSWORD`.
+   - `ANGLE_TOTP_SECRET`: This is the secret key you get when setting up 2FA on the SmartAPI portal.
+   - **Benefit**: Angle One logins are **100% automatic**. You don't need to copy-paste tokens every morning!
+
 4. Go to **File > Save As** and save it as exactly `.env` (remove the `.example` part).
 
 ## 🚀 Step 5: Start the Dashboard
@@ -48,13 +57,15 @@ Now the fun part!
 ## 🎯 How to use the Dashboard
 - **Sidebar**: Navigate through different tools (V3 Evaluator, BTST, Day Trading).
 - **Day Trading Tab**: Select NIFTY, choose an expiry, and click "Analyze".
-- **Strict Validation**: The tool will show you a "Confidence Score". Only trade if it's high (Green)!
+- **Signal Hub**: Monitor real-time technical signals from your active broker.
 - **Trading Mode**: You can toggle between **Paper Trade** (safe testing) and **Live Trading** in the Autonomous Engine tab.
 
 ## 🛑 Common Issues for Beginners
 - **"Python is not recognized"**: You forgot to check "Add Python to PATH" in Step 1. Uninstall and reinstall Python.
-- **Port 8001 Busy**: Close any other dashboard windows and try again.
-- **Data Not Loading**: Ensure your `SESSION_TOKEN` in the `.env` file is fresh for today!
+- **ModuleNotFoundError**: Run `pip install -r requirements.txt` again to ensure everything is installed.
+- **Session Expired**: 
+  - For ICICI: Update your `SESSION_TOKEN` in `.env`.
+  - For Angle One: Ensure your `TOTP_SECRET` is correct.
 
 ---
 

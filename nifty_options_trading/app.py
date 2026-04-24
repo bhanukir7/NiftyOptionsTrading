@@ -63,7 +63,9 @@ except ImportError:
     pass
 
 # ── Internal imports ──────────────────────────────────────────────────────────
+from nifty_options_trading.broker_interface import BaseBroker
 from nifty_options_trading.safe_breeze import SafeBreeze
+from nifty_options_trading.safe_smartapi import SafeSmartAPI
 from nifty_options_trading.options_engine import (
     get_option_chain, get_dynamic_lot_size, get_expiries, get_strikes,
 )
@@ -87,6 +89,7 @@ from nifty_options_trading.strict_validator import validate_strict_signal
 API_KEY       = os.getenv("API_KEY", "")
 API_SECRET    = os.getenv("API_SECRET", "")
 SESSION_TOKEN = os.getenv("SESSION_TOKEN", "")
+BROKER_TYPE   = os.getenv("BROKER_TYPE", "ICICI_BREEZE")
 AVAILABLE_FUNDS = float(os.getenv("AVAILABLE_FUNDS", "50000"))
 STOCK_CODES_STR = os.getenv("STOCK_CODES", "NIFTY,CNXBAN,VEDLIM,MAZDOC,RELIND,COCSHI")
 STOCK_CODES     = [s.strip().upper() for s in STOCK_CODES_STR.split(",") if s.strip()]
@@ -97,7 +100,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 _executor = ThreadPoolExecutor(max_workers=4)
 _engine: Optional[AutonomousEngine] = None
-_breeze_instance: Optional[SafeBreeze] = None
+_broker_instance: Optional[BaseBroker] = None
 
 # ── HTML Dashboard ────────────────────────────────────────────────────────────
 DASHBOARD_PATH = current_dir / "nifty_trading_dashboard.html"
@@ -129,22 +132,32 @@ def clean_json_data(o):
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup_event():
-    global _engine, _breeze_instance
-    print("[app.py] Initializing dashboard services...")
+    global _engine, _broker_instance
+    print(f"[app.py] Initializing {BROKER_TYPE} dashboard services...")
     try:
-        if not API_KEY or not SESSION_TOKEN:
-            print("  [!] Skip engine startup: API_KEY or SESSION_TOKEN missing in .env")
-            return
-
-        _breeze_instance = SafeBreeze(api_key=API_KEY)
-        _breeze_instance.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
+        if BROKER_TYPE == "ICICI_BREEZE":
+            if not API_KEY or not SESSION_TOKEN:
+                print("  [!] Skip engine startup: API_KEY or SESSION_TOKEN missing")
+                return
+            _broker_instance = SafeBreeze(api_key=API_KEY)
+            _broker_instance.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
+        else: # ANGLE_ONE
+            api_key = os.getenv("ANGLE_API_KEY")
+            jwt = os.getenv("ANGLE_JWT_TOKEN")
+            refresh = os.getenv("ANGLE_REFRESH_TOKEN")
+            if not api_key or not jwt:
+                print("  [!] Skip engine startup: ANGLE_API_KEY or ANGLE_JWT_TOKEN missing")
+                return
+            _broker_instance = SafeSmartAPI(api_key=api_key)
+            _broker_instance.smart.setAccessToken(jwt)
+            # Pre-populate token map (Step 8)
         
-        _engine = AutonomousEngine(_breeze_instance, stock_codes=STOCK_CODES)
-        # Pre-warm Security Master - Wrapped in child try to avoid total crash if zip missing
+        _engine = AutonomousEngine(_broker_instance, stock_codes=STOCK_CODES)
+        # Pre-warm Security Master
         try:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(_executor, lambda: get_expiries("NIFTY", "CE"))
-            print("  [+] Trading Engine and Security Master initialized.")
+            print(f"  [+] Trading Engine ({BROKER_TYPE}) and Security Master initialized.")
         except Exception as se:
             print(f"  [!] Security Master warning: {se}")
             
@@ -171,17 +184,23 @@ def shutdown_event():
 
 
 # ── Helper: get authenticated Breeze instance ─────────────────────────────────
-def _get_breeze() -> SafeBreeze:
-    global _breeze_instance
-    if _breeze_instance:
-        return _breeze_instance
+def _get_breeze() -> BaseBroker:
+    global _broker_instance
+    if _broker_instance:
+        return _broker_instance
         
-    if not API_KEY:
-        raise HTTPException(status_code=400, detail="API_KEY missing from .env")
-    
-    _breeze_instance = SafeBreeze(api_key=API_KEY)
-    _breeze_instance.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
-    return _breeze_instance
+    if BROKER_TYPE == "ICICI_BREEZE":
+        if not API_KEY: raise HTTPException(status_code=400, detail="API_KEY missing")
+        _broker_instance = SafeBreeze(api_key=API_KEY)
+        _broker_instance.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
+    else:
+        api_key = os.getenv("ANGLE_API_KEY")
+        jwt = os.getenv("ANGLE_JWT_TOKEN")
+        if not api_key: raise HTTPException(status_code=400, detail="ANGLE_API_KEY missing")
+        _broker_instance = SafeSmartAPI(api_key=api_key)
+        _broker_instance.smart.setAccessToken(jwt)
+        
+    return _broker_instance
 
 
 # ══════════════════════════════════════════════════════════════════════════════

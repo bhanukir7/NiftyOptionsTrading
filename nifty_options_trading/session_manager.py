@@ -95,25 +95,50 @@ def update_env_token(token):
     return success
 
 # ── Session Health Check ──────────────────────────────────────────────────────
-def check_session_health(api_key, api_secret, session_token):
+def check_session_health(api_key, api_secret, session_token, broker_type="ICICI_BREEZE", **kwargs):
     """
     Returns (bool, str) -> (is_valid, error_message)
     Tries a lightweight API call to verify the session.
     """
-    from breeze_connect import BreezeConnect
+    if broker_type == "ICICI_BREEZE":
+        from breeze_connect import BreezeConnect
+        try:
+            breeze = BreezeConnect(api_key=api_key)
+            breeze.generate_session(api_secret=api_secret, session_token=session_token)
+            res = breeze.get_customer_details(api_session=session_token)
+            if res.get("Status") == 200:
+                return True, "Valid"
+            else:
+                return False, res.get("Error", "Unknown Error")
+        except Exception as e:
+            return False, str(e)
+    elif broker_type == "ANGLE_ONE":
+        from SmartApi import SmartConnect
+        try:
+            smart = SmartConnect(api_key=api_key)
+            # SmartAPI uses jwtToken for subsequent requests.
+            # We check profile to verify session.
+            smart.setAccessToken(session_token)
+            res = smart.getProfile(kwargs.get("refresh_token", ""))
+            if res.get("status"):
+                return True, "Valid"
+            else:
+                return False, res.get("message", "Unknown Error")
+        except Exception as e:
+            return False, str(e)
+    return False, "Unsupported Broker"
+
+def login_smartapi(api_key, client_code, password, totp_secret):
+    """Performs silent TOTP login for Angle One."""
+    from nifty_options_trading.safe_smartapi import SafeSmartAPI
     try:
-        breeze = BreezeConnect(api_key=api_key)
-        # Note: generate_session might not fail immediately, so we test with a call
-        breeze.generate_session(api_secret=api_secret, session_token=session_token)
-        
-        # Test call: Get Customer Details is usually the fastest check
-        res = breeze.get_customer_details(api_session=session_token)
-        if res.get("Status") == 200:
-            return True, "Valid"
-        else:
-            return False, res.get("Error", "Unknown Error")
+        broker = SafeSmartAPI(api_key=api_key)
+        res = broker.generate_session(client_code, password, totp_secret)
+        if res.get('status'):
+            return res['data']['jwtToken'], res['data']['refreshToken']
     except Exception as e:
-        return False, str(e)
+        print(f"[SessionManager] Angle One Login Failed: {e}")
+    return None, None
 
 if __name__ == "__main__":
     # Internal CLI for manual refresh

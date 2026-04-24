@@ -16,7 +16,7 @@ from collections import deque
 from typing import Dict, List, Optional, Literal, Tuple
 
 import pandas as pd
-from nifty_options_trading.safe_breeze import SafeBreeze
+from nifty_options_trading.broker_interface import BaseBroker
 from nifty_options_trading.market_stream import MarketStream
 from nifty_options_trading.strategy import analyze_and_generate_signal
 from nifty_options_trading.maxpain_strategy import MaxPainStrategy
@@ -38,11 +38,11 @@ class AutonomousEngine:
     """
     The central brain of the dashboard that runs the background trading loop.
     """
-    def __init__(self, breeze: SafeBreeze, stock_codes: Optional[List[str]] = None):
-        self.breeze = breeze
+    def __init__(self, broker: BaseBroker, stock_codes: Optional[List[str]] = None):
+        self.breeze = broker # Keeping the name breeze for now to minimize ripple changes, but it's BaseBroker
         self.state = StateManager()
         self.config = Config()
-        self.stream = MarketStream(breeze)
+        self.stream = MarketStream(broker)
         self.maxpain_strat = MaxPainStrategy()
         self.breakout_strat = BreakoutStrategy()
         self.adv_strat = AdvancedBreakoutStrategy()
@@ -150,10 +150,10 @@ class AutonomousEngine:
             # 1. Fetch Technical Data (from 5min historical)
             today_start = datetime.now().strftime("%Y-%m-%dT00:00:00.000Z")
             hist_res = self.breeze.get_historical_data(
+                stock_code=symbol,
                 interval="5minute", 
                 from_date=today_start,
                 to_date=datetime.now().strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                stock_code=symbol,
                 exchange_code=self.exchange,
                 product_type="cash"
             )

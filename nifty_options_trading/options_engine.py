@@ -6,9 +6,9 @@ Author: Aditya Kota
 """
 import pandas as pd
 from datetime import datetime
-from nifty_options_trading.safe_breeze import SafeBreeze
+from nifty_options_trading.broker_interface import BaseBroker
 
-def get_option_chain(breeze: SafeBreeze, stock_code: str, expiry_date: str) -> pd.DataFrame:
+def get_option_chain(broker: BaseBroker, stock_code: str, expiry_date: str) -> pd.DataFrame:
     """
     Fetches the option chain for a given stock code and expiry date using the Breeze API.
     Returns a pandas DataFrame containing strike prices, calls, and puts data.
@@ -30,14 +30,14 @@ def get_option_chain(breeze: SafeBreeze, stock_code: str, expiry_date: str) -> p
     try:
         # Breeze get_option_chain_quotes API can sometimes be finicky with "others".
         # We will fetch Call and Put options separately and combine them.
-        calls_response = breeze.get_option_chain_quotes(
+        calls_response = broker.get_option_chain_quotes(
             stock_code=stock_code,
             exchange_code=exch_code,
             product_type="options",
             expiry_date=f"{expiry_date}T06:00:00.000Z",
             right="Call" 
         )
-        puts_response = breeze.get_option_chain_quotes(
+        puts_response = broker.get_option_chain_quotes(
             stock_code=stock_code,
             exchange_code=exch_code,
             product_type="options",

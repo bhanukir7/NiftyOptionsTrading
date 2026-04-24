@@ -76,51 +76,60 @@ def check_setup():
         print("-" * 50)
 
 def validate_session_preflight():
-    """Checks if the session is alive. If not, triggers the interactive refresh."""
+    """Checks if the session is alive. If not, triggers the interactive/silent refresh."""
     print(f"[run.py] API Session Check...")
-    load_dotenv(find_dotenv())
+    load_dotenv(find_dotenv(), override=True)
     
-    api_key = os.getenv("API_KEY")
-    api_secret = os.getenv("API_SECRET")
-    session_token = os.getenv("SESSION_TOKEN")
+    broker_type = os.getenv("BROKER_TYPE", "ICICI_BREEZE")
+    api_key = os.getenv("API_KEY") if broker_type == "ICICI_BREEZE" else os.getenv("ANGLE_API_KEY")
     
-    if not api_key or not api_secret:
-        print("  [!] Error: API_KEY or API_SECRET missing in .env. Setup required.")
+    if not api_key:
+        print(f"  [!] Error: API Key missing for {broker_type} in .env.")
         return False
         
-    if not session_token:
-        print("  [!] Session token missing. Starting login flow...")
-        return trigger_refresh(api_key)
-
-    # Try a quick health check
-    is_valid, error = sm.check_session_health(api_key, api_secret, session_token)
+    if broker_type == "ICICI_BREEZE":
+        api_secret = os.getenv("API_SECRET")
+        session_token = os.getenv("SESSION_TOKEN")
+        if not session_token:
+            return trigger_refresh(api_key, broker_type)
+        is_valid, error = sm.check_session_health(api_key, api_secret, session_token, broker_type)
+    else: # ANGLE_ONE
+        session_token = os.getenv("ANGLE_JWT_TOKEN")
+        refresh_token = os.getenv("ANGLE_REFRESH_TOKEN")
+        if not session_token:
+            return trigger_refresh(api_key, broker_type)
+        is_valid, error = sm.check_session_health(api_key, None, session_token, broker_type, refresh_token=refresh_token)
     
     if is_valid:
-        print("  [+] Session token is valid.")
+        print(f"  [+] {broker_type} session is valid.")
         return True
     
-    if "expired" in error.lower() or "session" in error.lower() or "invalid" in error.lower():
-        print(f"  [!] Session token expired/invalid ({error}). Refreshing...")
-        return trigger_refresh(api_key)
-    else:
-        # Some other error (network, API limit, etc.) - we don't want to force login for everything
-        print(f"  [?] Session health check returned unexpected error: {error}")
-        print("      Continuing anyway (it might be a temporary API/network issue).")
-        return True
+    print(f"  [!] Session expired/invalid ({error}). Refreshing...")
+    return trigger_refresh(api_key, broker_type)
 
-def trigger_refresh(api_key):
-    """Triggers the interactive session capture."""
-    new_token = sm.capture_session_token(api_key)
-    if new_token:
-        if sm.update_env_token(new_token):
-            print(f"  [+] Successfully updated .env with new token.")
-            # Reload env for the current process as well
-            load_dotenv(find_dotenv(), override=True)
+def trigger_refresh(api_key, broker_type="ICICI_BREEZE"):
+    """Triggers the appropriate login flow."""
+    if broker_type == "ICICI_BREEZE":
+        new_token = sm.capture_session_token(api_key)
+        if new_token:
+            return sm.update_env_token(new_token)
+    elif broker_type == "ANGLE_ONE":
+        client_code = os.getenv("ANGLE_CLIENT_CODE")
+        password = os.getenv("ANGLE_PASSWORD")
+        totp_secret = os.getenv("ANGLE_TOTP_SECRET")
+        
+        if not all([client_code, password, totp_secret]):
+            print("  [!] Error: Angle One credentials missing in .env (CLIENT_CODE, PASSWORD, TOTP_SECRET).")
+            return False
+            
+        print(f"  [i] Performing silent TOTP login for {client_code}...")
+        jwt, refresh = sm.login_smartapi(api_key, client_code, password, totp_secret)
+        if jwt:
+            sm.set_key(str(sm.ENV_PATH), "ANGLE_JWT_TOKEN", jwt)
+            sm.set_key(str(sm.ENV_PATH), "ANGLE_REFRESH_TOKEN", refresh)
+            print("  [+] Successfully updated .env with Angle One tokens.")
             return True
-        else:
-            print("  [!] Failed to update .env file.")
-    else:
-        print("  [!] Session refresh cancelled or timed out.")
+            
     return False
 
 def main():
@@ -172,7 +181,7 @@ def main():
             "--host", args.host, "--port", str(args.port)
         ]
         if not args.no_reload:
-            cmd += ["--reload", "--reload-dir", str(SRC_PKG), "--reload-include", "*.py", "--reload-include", "*.html"]
+            cmd += ["--reload", "--reload-dir", str(SRC_PKG)]
         print(f"[run.py] Starting Dashboard on http://{args.host}:{args.port}...")
     
     elif args.mode == "btst":

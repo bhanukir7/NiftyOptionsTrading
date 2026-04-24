@@ -1,12 +1,12 @@
-from nifty_options_trading.safe_breeze import SafeBreeze
+from nifty_options_trading.broker_interface import BaseBroker
 
 class MarketStream:
     """
     Subscribes to ICICI Breeze WebSocket to maintain live
     prices directly in-memory, completely bypassing API polling limits.
     """
-    def __init__(self, safe_breeze: SafeBreeze):
-        self.breeze = safe_breeze
+    def __init__(self, broker: BaseBroker):
+        self.breeze = broker
         self.latest_prices = {}
         
     def on_ticks(self, ticks):
