@@ -1,23 +1,23 @@
-**Release Version 1.0** — *April 12, 2026, 02:29 AM IST*
-**Release Version 2.0** — *April 12, 2026, 06:49 AM IST*
-**Release Version 3.0** — *April 12, 2026, 08:02 AM IST*
-**Release Version 4.0** — *April 13, 2026, 01:05 AM IST*
-**Release Version 5.0** — *April 13, 2026, 03:10 AM IST*
-**Release Version 6.0** — *April 14, 2026, 01:45 AM IST* (The Audit & FIFO Overhaul)
-**Release Version 7.0** — *April 21, 2026, 04:20 PM IST* (The Observability Hub)
-**Release Version 7.1** — *April 23, 2026, 02:45 AM IST* (High-Fidelity Signal Refinement)
-**Release Version 7.2** — *April 23, 2026, 09:55 AM IST* (Session Resilience & Intraday Fixes)
-**Release Version 8.0** — *April 24, 2026, 01:15 AM IST* (The Risk & Regime Overhaul)
-**Release Version 8.1** — *April 24, 2026, 01:25 AM IST* (Advanced Signal & Risk Upgrades)
-**Release Version 9.0** — *April 24, 2026, 01:40 AM IST* (The Hedge-Fund Decision Pipeline)
-**Release Version 11.0** — *April 24, 2026, 05:45 PM IST* (The Multi-Broker & Automation Overhaul)
-**Release Version 10.0** — *April 24, 2026, 12:30 PM IST* (The Observability & Efficiency Overhaul)
+**Release Version 1.1** — *April 12, 2026, 02:29 AM IST*
+**Release Version 1.2** — *April 12, 2026, 06:49 AM IST*
+**Release Version 1.3** — *April 12, 2026, 08:02 AM IST*
+**Release Version 1.4** — *April 13, 2026, 01:05 AM IST*
+**Release Version 1.5** — *April 13, 2026, 03:10 AM IST*
+**Release Version 1.6** — *April 14, 2026, 01:45 AM IST* (The Audit & FIFO Overhaul)
+**Release Version 1.7** — *April 21, 2026, 04:20 PM IST* (The Observability Hub)
+**Release Version 1.7.1** — *April 23, 2026, 02:45 AM IST* (High-Fidelity Signal Refinement)
+**Release Version 1.7.2** — *April 23, 2026, 09:55 AM IST* (Session Resilience & Intraday Fixes)
+**Release Version 1.8** — *April 24, 2026, 01:15 AM IST* (The Risk & Regime Overhaul)
+**Release Version 1.8.1** — *April 24, 2026, 01:25 AM IST* (Advanced Signal & Risk Upgrades)
+**Release Version 1.9** — *April 24, 2026, 01:40 AM IST* (The Hedge-Fund Decision Pipeline)
+**Release Version 1.10** — *April 24, 2026, 12:30 PM IST* (The Observability & Efficiency Overhaul)
+**Release Version 2.0** — *April 24, 2026, 05:45 PM IST* (The Multi-Broker & Automation Overhaul)
 
-## 🔌 Version 11.0: The Multi-Broker & Automation Overhaul
+## 🔌 Version 2.0: The Multi-Broker & Automation Overhaul
 
 This major version transitions the suite from a single-broker tool to a modular, broker-agnostic trading platform, featuring fully automated authentication and support for Angle One (SmartAPI).
 
-### Key 11.0 Improvements:
+### Key 2.0 Improvements:
 - **🔌 Broker-Agnostic Architecture**: Introduced a unified `BaseBroker` interface. The entire engine (Signal Hub, Strategies, Risk Engine) is now decoupled from the ICICI Breeze API, allowing for plug-and-play support for any broker.
 - **📐 Angle One (SmartAPI) Integration**: Full native support for Angle One. Access live market data, historical candles, and order placement with zero monthly API fees.
 - **🤖 100% Silent Authentication**: Implemented TOTP-based automated login for Angle One. The system now generates its own 2FA codes using `pyotp`, enabling truly autonomous "lights-out" operation without manual browser redirects.
@@ -28,11 +28,11 @@ This major version transitions the suite from a single-broker tool to a modular,
 
 ---
 
-## 🚀 Version 10.0: The Observability & Efficiency Overhaul
+## 🚀 Version 1.10: The Observability & Efficiency Overhaul
 
 This version focuses on operational efficiency, reducing API overhead, and providing full transparency into the autonomous engine's decision-making process.
 
-### Key 10.0 Improvements:
+### Key 1.10 Improvements:
 - **⚡ 5-Minute Scan Optimization**: Slowed down the `AutonomousEngine` scanning loop from 1 minute to **5 minutes**. This aligns with 5-minute technical indicators and reduces API call frequency by **80%**, significantly protecting your ICICI Breeze rate limits.
 - **📡 Signal Hub Transparency**: Integrated the `AdvancedBreakoutStrategy` into the main engine loop. The **Signal Hub** now provides real-time analysis for all tracked symbols.
 - **📝 Descriptive Decision Logs**: Every signal in the hub now includes a detailed **Reason** (e.g., *"Idle - Within Range"* or *"Bullish Setup - Price > Resistance"*), eliminating the "black box" feel of the autonomous engine.
@@ -42,10 +42,11 @@ This version focuses on operational efficiency, reducing API overhead, and provi
 
 ---
 
+## 🧬 Version 1.9: The Hedge-Fund Decision Pipeline
 
 This version transforms the autonomous engine into a structured, hedge-fund style decision pipeline, adding a mandatory validation layer through market regime detection and historical backtesting.
 
-### Key 9.0 Improvements:
+### Key 1.9 Improvements:
 - **🏦 Master Orchestrator Pipeline**: Integrated `evaluate_trade_decision` in `trading_engine.py`, enforcing a strict flow: **DATA → REGIME → BIAS → STRATEGY → SCORING → RISK → EXECUTION**.
 - **📊 Market Regime Detection**: Implemented a logic gate that classifies the market into **TREND**, **RANGE**, or **NO_TRADE** (Chop > 55 or < 35). Directional trades are strictly blocked in Range regimes.
 - **🛡️ Higher Timeframe (HTF) Bias**: Added a mandatory bias alignment check. New trades only trigger if the price and EMAs (21/50) align on the higher timeframe.
@@ -62,7 +63,7 @@ This version transforms the autonomous engine into a structured, hedge-fund styl
 
 ---
 
-## ⚖️ Version 8.1: Advanced Signal & Risk Upgrades
+## ⚖️ Version 1.8.1: Advanced Signal & Risk Upgrades
 
 This version polishes signal generation with a weighted scoring model and introduces strict ATR-based risk management to prevent over-allocation and improve consistency.
 
@@ -75,7 +76,7 @@ This version polishes signal generation with a weighted scoring model and introd
 *   **🚫 OTM Distance Filter**: Automatically rejects trades where the strike price distance from spot is more than **150 points**, focusing only on high-probability contracts.
 *   **📝 Enhanced Audit Logging**: Every trade rejection now logs a specific reason (e.g., "Rejected: No trade zone" or "Rejected: HTF mismatch") to the live activity feed for better transparency.
 
-## 📉 Version 8.0: The Risk & Regime Overhaul
+## 📉 Version 1.8: The Risk & Regime Overhaul
 
 This version introduces strict risk discipline, market regime-aware strategy selection, and corrects critical position sizing logic to stabilize P&L and prevent drawdowns during choppy markets.
 
@@ -88,7 +89,7 @@ This version introduces strict risk discipline, market regime-aware strategy sel
 *   **🌉 BTST Guardrails**: Refined the BTST evaluator in `app.py`. Overnight carry is now strictly blocked unless the score is **≥ 70** AND global market cues (Gift Nifty, US, Europe) are aligned with the trade direction.
 *   **📢 Detailed Rejection Logs**: Every blocked trade now logs its exact reason (e.g., "Blocked due to regime mismatch" or "Blocked due to bias mismatch") for improved audit transparency.
 
-## 🛡️ Version 7.2: Session Resilience & Intraday Fixes
+## 🛡️ Version 1.7.2: Session Resilience & Intraday Fixes
 
 This version focuses on operational resilience, fixing a critical bottleneck in the session management flow and restoring full functionality to the Day Trading analysis tab for Indian indices.
 
@@ -100,7 +101,7 @@ This version focuses on operational resilience, fixing a critical bottleneck in 
 
 ---
 
-## 🚀 Version 7.1: High-Fidelity Signal Refinement
+## 🚀 Version 1.7.1: High-Fidelity Signal Refinement
 
 This version polishes the Signal Hub and Global Macro engines, transitioning from placeholder logic to real-time, high-fidelity technical analysis and resilient API fetching.
 
@@ -113,7 +114,7 @@ This version polishes the Signal Hub and Global Macro engines, transitioning fro
 
 ---
 
-## 📡 Version 7.0: The Observability Hub
+## 📡 Version 1.7: The Observability Hub
 
 This version transforms the trading engine into a transparent, observable state machine, providing deep insights into every algorithmic decision and trade lifecycle event.
 
@@ -127,7 +128,7 @@ This version transforms the trading engine into a transparent, observable state 
 
 ---
 
-## 📈 Version 6.0: The Audit & FIFO Overhaul
+## 📈 Version 1.6: The Audit & FIFO Overhaul
 
 This version focuses on professional-grade trade auditing and dashboard stability, ensuring accurate PnL calculations regardless of trading complexity.
 
@@ -144,7 +145,7 @@ This version focuses on professional-grade trade auditing and dashboard stabilit
 
 ---
 
-## 🎯 Version 5.0: The Conviction Engine
+## 🎯 Version 1.5: The Conviction Engine
 
 This version focuses on high-conviction intraday execution, filtering out market noise using a multi-factor strict validation logic.
 
@@ -158,7 +159,7 @@ This version focuses on high-conviction intraday execution, filtering out market
 
 ---
 
-## 📊 Version 4.0: The Professional Audit Suite
+## 📊 Version 1.4: The Professional Audit Suite
 
 This version transforms the dashboard from a real-time monitor into a professional trading audit station, integrating historical performance tracking with global macro precision.
 
@@ -173,11 +174,11 @@ This version transforms the dashboard from a real-time monitor into a profession
 
 ---
 
-## 🤖 Version 3.0: The Autonomous Command Center
+## 🤖 Version 1.3: The Autonomous Command Center
 
 The suite has evolved into a fully autonomous trading ecosystem. The background daemon has been unified into the dashboard, providing a "Zero-Click" monitoring and execution experience.
 
-### Key 3.0 Features:
+### Key 1.3 Improvements:
 *   **Unified Autonomous Engine**: (via `trading_engine.py`) The background scanner from `main.py` is now a hosted service within the dashboard. Start or stop the engine directly from the UI.
 *   **Max Pain OI Strategy**: A buyer-side mean-reversion engine that identifies institutional OI walls (Support/Resistance) and targets Max Pain for high-precision exits.
 *   **Live Log Telemetry**: Stream the engine's internal "decision logs" in real-time to the browser without refreshing or checking terminal output.
@@ -187,11 +188,11 @@ The suite has evolved into a fully autonomous trading ecosystem. The background 
 
 ---
 
-## ⚡ Version 2.0: The Premium Dashboard
+## ⚡ Version 1.2: The Premium Dashboard
 
 The suite has graduated from CLI-only execution to a unified, interactive **FastAPI Dashboard**. This version focuses on stability, modularity, and a modern web interface.
 
-### Key 2.0 Features:
+### Key 1.2 Improvements:
 *   **Unified UI Dashboard**: (via `app.py`) Access every evaluator (V3, BTST, Global) through a single, stunning HSL-themed web interface.
 *   **Universal Launcher**: (via `run.py`) One command to start the entire environment with automatic PYTHONPATH management and optimized file watching for Windows.
 *   **Interactive Risk Simulator**: A live rule-engine visualizer that allows you to simulate entry conditions, potential slippage, and capital exposure.
@@ -251,7 +252,7 @@ The latest UI/UX and analytical upgrade for fast terminal tracking.
 
 ---
 
-## 🆕 v1.0 Universal API Tracking
+## 🆕 v1.1 Universal API Tracking
 As part of Release 1.0, the `api_rate_limiter.py` engine now persistently tracks API endpoint usage across *all independent script runs*. State is preserved in a local JSON cache, meaning whether you run `V2`, `V3`, or a background monitor, ICICIdirect quotas are universally protected and synced. All evaluators now explicitly print live API usage logs seamlessly at the end of their reports.
 
 ---
@@ -328,7 +329,7 @@ A detailed index of exactly what every Python file does within the `nifty_option
 
 ### The Evaluator Engines
 - `advanced_strategy.py` : **Observable Strategy Provider**. Manages symbol-level state machines (RANGE/TREND) and emits structured signals for the dashboard and alerts.
-- `trade_analyzer.py` : **Performance Audit Engine**. Parses ICICI Direct F&O Trade Books with date filtering and symbol-to-contract drill-down hierarchy.
+- `trade_analyzer.py` : **Performance Audit Engine**. Parses broker-specific F&O Trade Books with date filtering and symbol-to-contract drill-down hierarchy.
 - `evaluate_global.py` : **Global Macro Confluence Evaluator**. Integrates local Indian setups with global US/Asian market sentiment.
 - `evaluate_btst.py` : **Probabilistic BTST Engine**. Aggregates Daily Closing Strength, Put-Call Ratio, IV proxy, and Global Cues to compute a 0-100 confidence score for gap-ups.
 - `evaluate_contract_V3.py` : **Multi-Strike Evaluator**. Dynamically locates ATM strike and evaluates up to 9 closest active strikes (4 above, 4 below) without requiring explicit strike inputs.
@@ -344,7 +345,7 @@ A detailed index of exactly what every Python file does within the `nifty_option
 ### Core Calculation Logic Scripts
 - `strict_validator.py` : **Strict Execution Gatekeeper**. Enforces rigid 5-factor discipline (Trend, VWAP, RSI, Volume, Pullback) with weighted confidence scoring.
 - `rule_engine.py` : **Risk Management Layer**. Enforces daily loss limits, trade count caps, and trails active stops.
-- `options_engine.py` : **Dynamic Sizer & Fetcher**. Downloads dataframes directly from ICICI. Automatically unzips and parses the official SecurityMaster text files daily to calculate exact operational lot sizes.
+- `options_engine.py` : **Dynamic Sizer & Fetcher**. Fetches market data and historical candles from the active broker. Automatically unzips and parses security master files to calculate exact operational lot sizes.
 - `theta_defense.py` : **DTE Protection Script**. Identifies Options contract validity to protect the trader from bleeding Time/Theta decay.
 - `max_pain.py` : **Max Pain Calculator**. Extrapolates aggregate Open Interest data to estimate the expiration "pain" threshold for option sellers.
 - `expiry_calc.py` : **Time Series Mapper**. Ensures scripts exclusively pull exactly standard valid NSE expiration boundaries.
@@ -359,7 +360,7 @@ A detailed index of exactly what every Python file does within the `nifty_option
 - `market_stream.py` : **Unified WebSocket Integrator**. Broker-agnostic price stream handling for real-time dashboard updates.
 
 ### Web & UI Layer
-- `app.py` : **FastAPI Master Server**. The central brain of the Version 2.0 suite. Exposes all analytical modules via a RESTful API.
+- `app.py` : **FastAPI Master Server**. The central brain of the Version 2.0 ecosystem. Exposes all analytical modules and multi-broker services via a RESTful API.
 - `nifty_trading_dashboard.html` : **The Command Center**. A high-performance, responsive UI featuring live world markets, risk simulation, and multi-strike analysis.
 
 ### Execution & Alert Framework
