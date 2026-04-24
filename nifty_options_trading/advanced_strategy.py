@@ -101,7 +101,7 @@ class AdvancedBreakoutStrategy:
         self.last_signal[symbol] = {"type": signal_type, "timestamp": now}
 
         # Telegram Alerts for High-Priority signals
-        if signal_type in ["BREAKOUT_CONFIRMED", "ENTRY_CE", "ENTRY_PE", "SCALE_OUT", "EXIT", "SETUP_DETECTED", "RANGE_DETECTED"]:
+        if signal_type in ["BREAKOUT_CONFIRMED", "ENTRY_CE", "ENTRY_PE", "SCALE_OUT", "EXIT"]:
             side_str = metadata.get("side", "") if metadata else ""
             reason = metadata.get("reason", "") if metadata else ""
             msg = (f"🚨 **SIGNAL HUB ALERT [{symbol}]**\n"

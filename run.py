@@ -172,7 +172,7 @@ def main():
             "--host", args.host, "--port", str(args.port)
         ]
         if not args.no_reload:
-            cmd += ["--reload", "--reload-dir", str(SRC_PKG)]
+            cmd += ["--reload", "--reload-dir", str(SRC_PKG), "--reload-include", "*.py", "--reload-include", "*.html"]
         print(f"[run.py] Starting Dashboard on http://{args.host}:{args.port}...")
     
     elif args.mode == "btst":

@@ -30,6 +30,9 @@ from nifty_options_trading.alerts import send_alert
 from nifty_options_trading.breakout_strategy import BreakoutStrategy, MarketData
 from nifty_options_trading.advanced_strategy import AdvancedBreakoutStrategy, MarketData as AdvMarketData
 from nifty_options_trading.global_cues import fetch_world_markets
+from ta.trend import EMAIndicator, MACD
+from ta.momentum import RSIIndicator
+from ta.volatility import BollingerBands, AverageTrueRange
 
 class AutonomousEngine:
     """
@@ -165,36 +168,37 @@ class AutonomousEngine:
             spot = self.stream.get_price(symbol) or df.iloc[-1]["close"]
             vwap = df["close"].mean()
             
-            # Indicators for Bias
-            df["ema21"] = df["close"].ewm(span=21, adjust=False).mean()
-            df["ema50"] = df["close"].ewm(span=50, adjust=False).mean()
-            ema21 = df["ema21"].iloc[-1]
-            ema50 = df["ema50"].iloc[-1]
+            # 1. EMA Bias
+            ema21_ind = EMAIndicator(df["close"], window=21).ema_indicator()
+            ema50_ind = EMAIndicator(df["close"], window=50).ema_indicator()
+            ema21 = ema21_ind.iloc[-1]
+            ema50 = ema50_ind.iloc[-1]
             
-            # MACD
-            exp1 = df["close"].ewm(span=12, adjust=False).mean()
-            exp2 = df["close"].ewm(span=26, adjust=False).mean()
-            df["macd_line"] = exp1 - exp2
-            df["macd_signal"] = df["macd_line"].ewm(span=9, adjust=False).mean()
-            macd_val = df["macd_line"].iloc[-1]
-            macd_sig = df["macd_signal"].iloc[-1]
+            # 2. MACD
+            macd_ind = MACD(df["close"])
+            macd_val = macd_ind.macd().iloc[-1]
+            macd_sig = macd_ind.macd_signal().iloc[-1]
+            macd_hist = macd_ind.macd_diff().iloc[-1]
             
-            # Chop Index (Simplified)
+            # 3. ATR & Chop
+            atr_ind = AverageTrueRange(df["high"], df["low"], df["close"], window=14)
+            atr = atr_ind.average_true_range().iloc[-1]
+            
+            # Simplified Chop Index
             df["tr"] = (df["high"] - df["low"])
-            df["atr"] = df["tr"].rolling(14).mean()
-            atr = df["atr"].iloc[-1]
+            df["atr_rolling"] = df["tr"].rolling(14).mean()
             df["std20"] = df["close"].rolling(20).std()
-            chop_val = 60 if (df["std20"].iloc[-1] < atr * 1.5) else 40
+            chop_val = 60 if (df["std20"].iloc[-1] < df["atr_rolling"].iloc[-1] * 1.5) else 40
             
-            # RSI
-            delta = df['close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rsi_val = 50
-            if not loss.empty and loss.iloc[-1] != 0:
-                rs = gain / loss
-                rsi_val = 100 - (100 / (1 + rs.iloc[-1]))
-
+            # 4. RSI
+            rsi_val = RSIIndicator(df["close"], window=14).rsi().iloc[-1]
+            
+            # 5. Bollinger Bands
+            bb_ind = BollingerBands(df["close"], window=20, window_dev=2)
+            bb_upper = bb_ind.bollinger_hband().iloc[-1]
+            bb_lower = bb_ind.bollinger_lband().iloc[-1]
+            bb_mid = bb_ind.bollinger_mavg().iloc[-1]
+            
             # Fetch VIX
             world_data = fetch_world_markets()
             vix_pct = 0.0
@@ -206,12 +210,14 @@ class AutonomousEngine:
             
             # Prepare Indicators for Scoring
             indicators = {
-                "macd_hist": macd_val - macd_sig,
+                "macd_hist": macd_hist,
                 "ema_alignment": spot > ema21 > ema50,
-                "price_above_bb": False, # Placeholder for BB logic
+                "price_above_bb": spot > bb_upper,
+                "price_below_bb": spot < bb_lower,
                 "rsi": rsi_val,
                 "rsi_extreme": rsi_val > 70 or rsi_val < 30,
-                "bb_reversal": False,
+                "bb_reversal": (spot > bb_upper and df["close"].iloc[-1] < df["open"].iloc[-1]) or 
+                               (spot < bb_lower and df["close"].iloc[-1] > df["open"].iloc[-1]),
                 "maxpain_distance": 100 # Placeholder
             }
             
@@ -374,14 +380,33 @@ class AutonomousEngine:
     def compute_score(self, indicators, regime):
         score = 0
         if regime == "TREND":
-            if indicators.get("macd_hist", 0) > 0: score += 30
+            # 1. MACD Momentum (30 points)
+            if abs(indicators.get("macd_hist", 0)) > 0.1: score += 30
+            
+            # 2. EMA Alignment (20 points)
             if indicators.get("ema_alignment", False): score += 20
-            if indicators.get("price_above_bb", False): score += 15
-            if indicators.get("rsi", 50) > 55: score += 10
+            
+            # 3. Bollinger Breakout (20 points)
+            if indicators.get("price_above_bb", False) or indicators.get("price_below_bb", False): 
+                score += 20
+                
+            # 4. RSI Strength (10 points)
+            rsi = indicators.get("rsi", 50)
+            if (rsi > 55 and rsi < 75) or (rsi < 45 and rsi > 25):
+                score += 10
+                
         elif regime == "RANGE":
-            if indicators.get("rsi_extreme", False): score += 25
-            if indicators.get("bb_reversal", False): score += 25
-            if indicators.get("maxpain_distance", 0) < 50: score += 20
+            # 1. RSI Mean Reversion (30 points)
+            if indicators.get("rsi_extreme", False): score += 30
+            
+            # 2. Bollinger Reversal (30 points)
+            if indicators.get("bb_reversal", False): score += 30
+            
+            # 3. Low Volatility / Consolidation (20 points)
+            # If price is within BB but close to edges
+            rsi = indicators.get("rsi", 50)
+            if (rsi > 60 or rsi < 40): score += 20
+            
         return score
 
     def _execute_signal(self, symbol: str, signal_data: Dict):
