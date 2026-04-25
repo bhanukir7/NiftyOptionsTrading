@@ -232,6 +232,29 @@ async def api_strikes(symbol: str = "NIFTY", expiry: str = "", option_type: str 
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Helper: Get Exchange for Symbol
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _get_exchange(symbol: str) -> str:
+    s = symbol.upper()
+    if s in ["BSESEN", "SENSEX", "BANKEX", "BSESN", "BSEX"]:
+        return "BSE"
+    return "NSE"
+
+
+def _get_cash_symbol(symbol: str) -> str:
+    s = symbol.upper()
+    if s in ["BSESEN", "SENSEX"]:
+        return "BSESN"
+    if s == "BANKEX":
+        return "BSEX"
+    return s
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  GET /api/global/markets  — Live yfinance world market snapshot
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -265,7 +288,10 @@ def _run_v3(req: V3Request) -> dict:
     stock_code = req.symbol.upper()
 
     # 1. Fetch 5-min spot data
-    spot_df = fetch_multiday_data(breeze, stock_code, "NSE", "5minute", days_back=7)
+    exchange = _get_exchange(stock_code)
+    cash_sym = _get_cash_symbol(stock_code)
+    print(f"[DEBUG] Fetching 5m data for {cash_sym} on {exchange}...")
+    spot_df = fetch_multiday_data(breeze, cash_sym, exchange, "5minute", days_back=7)
     if spot_df.empty:
         raise HTTPException(status_code=500, detail="Could not fetch spot data. Check API or trading hours.")
 
@@ -371,7 +397,10 @@ def _run_daytrading(req: DayTradingRequest) -> dict:
     stock_code = req.symbol.upper()
 
     # 1. Fetch 5-min spot data (enough for EMA/RSI/MACD burn-in)
-    spot_df = fetch_multiday_data(breeze, stock_code, "NSE", "5minute", days_back=10)
+    exchange = _get_exchange(stock_code)
+    cash_sym = _get_cash_symbol(stock_code)
+    print(f"[DEBUG] Fetching 5m data for {cash_sym} on {exchange}...")
+    spot_df = fetch_multiday_data(breeze, cash_sym, exchange, "5minute", days_back=10)
     if spot_df.empty:
         raise HTTPException(status_code=500, detail="Could not fetch spot data. Check API or trading hours.")
 
@@ -494,9 +523,13 @@ def _run_btst(req: BTSTRequest) -> dict:
     asia_market   = cue_data["asia_market"]
 
     # ── 2. Local 1-day technicals ─────────────────────────────────────────────
-    spot_df = fetch_multiday_data(breeze, stock_code, "NSE", "1day", days_back=90)
+    exchange = _get_exchange(stock_code)
+    cash_sym = _get_cash_symbol(stock_code)
+    print(f"[DEBUG] Fetching 1D data for {cash_sym} on {exchange}...")
+    spot_df = fetch_multiday_data(breeze, cash_sym, exchange, "1day", days_back=90)
     if spot_df.empty:
-        raise HTTPException(status_code=500, detail="Could not fetch 1D historic data.")
+        print(f"[ERROR] Historical data fetch failed for {cash_sym} ({exchange}). Response was empty.")
+        raise HTTPException(status_code=500, detail=f"Could not fetch 1D historic data for {cash_sym} on {exchange}.")
 
     signal_data = analyze_advanced_indicators(spot_df)
     spot_price  = signal_data.get("close", 0.0)
@@ -1109,9 +1142,12 @@ def _run_strict_analysis(req: StrictRequest) -> dict:
     stock_code = req.symbol.upper()
 
     # Fetch 5-min data
-    df = fetch_multiday_data(breeze, stock_code, "NSE", "5minute", days_back=10)
+    exchange = _get_exchange(stock_code)
+    cash_sym = _get_cash_symbol(stock_code)
+    print(f"[DEBUG] Fetching 5m data for {cash_sym} on {exchange}...")
+    df = fetch_multiday_data(breeze, cash_sym, exchange, "5minute", days_back=10)
     if df.empty:
-        return {"error": "Could not fetch spot data."}
+        raise HTTPException(status_code=500, detail=f"Could not fetch 5m spot data for {cash_sym} on {exchange}.")
 
     strict_res = validate_strict_signal(df)
     

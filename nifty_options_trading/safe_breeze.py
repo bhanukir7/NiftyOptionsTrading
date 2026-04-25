@@ -45,8 +45,9 @@ class SafeBreeze(BaseBroker):
 
     # Wrapped API Methods with Caching and Limits
     def get_historical_data(self, stock_code: str, interval: str, from_date: str, to_date: str, **kwargs):
+        exchange = kwargs.get("exchange_code", "NSE")
         # Construct unique key
-        cache_key = f"hist_{stock_code}_{interval}_{to_date}"
+        cache_key = f"hist_{stock_code}_{exchange}_{interval}_{to_date}"
         
         # TTL Rules from specs: 1 hour for daily data (to catch intraday updates), 1 min for shorter
         ttl = 3600 if interval == "1day" else 60

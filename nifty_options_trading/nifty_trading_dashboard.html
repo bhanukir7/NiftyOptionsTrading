@@ -1788,9 +1788,11 @@
 
     // Signal / verdict colour helper
     function sigBadge(sig) {
-      const cls = sig.includes('BUY_CALL') || sig === 'BUY' ? 'badge-buy'
-        : sig.includes('BUY_PUT') ? 'badge-sell'
-          : sig === 'HOLD' ? 'badge-hold'
+      if (!sig) return '<span class="badge badge-hold">NONE</span>';
+      const s = String(sig).toUpperCase();
+      const cls = s.includes('BUY_CALL') || s === 'BUY' || s.includes('BULLISH') ? 'badge-buy'
+        : s.includes('BUY_PUT') || s.includes('BEARISH') ? 'badge-sell'
+          : s === 'HOLD' ? 'badge-hold'
             : 'badge-wait';
       return `<span class="badge ${cls}">${sig}</span>`;
     }
@@ -2064,7 +2066,7 @@
         : vdict.includes('REJECT') ? 'neg'
           : vdict.includes('WARN') ? 'neu' : 'dim';
       g('gl-verdict').innerHTML = `<span class="${vCls}">${vdict}</span>`;
-      g('gl-reason').textContent = local.reason || '';
+      g('gl-reason').textContent = (d.local && d.local.reason) || '';
 
       g('gl-ltp').textContent = d.opt_ltp > 0 ? fmtINR(d.opt_ltp) : '—';
       g('gl-t1').textContent = d.targets?.t1 ? fmtINR(d.targets.t1) : '—';
@@ -2110,7 +2112,8 @@
 
       // Reasons / Breakdown
       g('dt-reasons').innerHTML = (d.reasons || []).map(r => {
-        const isOk = r.includes('Conforming') || r.includes('met');
+        if (!r) return '';
+        const isOk = r.includes('Conforming') || r.includes('met') || r.includes('Trend');
         return `<span class="badge ${isOk ? 'badge-buy' : 'badge-hold'}" style="font-size:10px">${r}</span>`;
       }).join('');
 

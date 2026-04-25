@@ -66,6 +66,28 @@ def parse_input_string(contract_str: str) -> dict:
     }
 
 def fetch_multiday_data(breeze: SafeBreeze, stock_code: str, exchange_code: str, interval: str, days_back=90) -> pd.DataFrame:
+    # --- YFINANCE FALLBACK FOR BSE INDICES ---
+    if exchange_code.upper() == "BSE":
+        try:
+            import yfinance as yf
+            ticker_map = {"BSESN": "^BSESN", "BSEX": "^BSEBANK", "SENSEX": "^BSESN", "BANKEX": "^BSEBANK"}
+            ticker = ticker_map.get(stock_code.upper(), stock_code.upper())
+            print(f"[FALLBACK] Fetching {ticker} from yfinance (BSE not supported by Breeze Hist API)...")
+            
+            yf_interval = {"5minute": "5m", "1day": "1d", "1minute": "1m"}.get(interval, "1d")
+            # Use Ticker.history instead of download to avoid MultiIndex columns for single ticker
+            data = yf.Ticker(ticker).history(period=f"{days_back}d", interval=yf_interval)
+            if not data.empty:
+                df = data.reset_index()
+                df.columns = [str(c).lower() for c in df.columns]
+                # Map yf columns to breeze format
+                rename_map = {'date': 'datetime', 'open': 'open', 'high': 'high', 'low': 'low', 'close': 'close', 'volume': 'volume'}
+                df.rename(columns=rename_map, inplace=True)
+                print(f"[SUCCESS] Received {len(df)} candles from yfinance for {ticker}.")
+                return df
+        except Exception as e:
+            print(f"[FALLBACK ERROR] yfinance failed: {e}")
+
     try:
         now_dt = datetime.now()
         iso_date = now_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z") 
@@ -91,6 +113,8 @@ def fetch_multiday_data(breeze: SafeBreeze, stock_code: str, exchange_code: str,
             df["datetime"] = pd.to_datetime(df["datetime"])
             df = df.reset_index(drop=True)
             return df
+        else:
+            print(f"[BREEZE SDK] Historical data error: {response}")
         return pd.DataFrame()
     except Exception as e:
         print(f"Exception during historical data fetch: {e}")
@@ -355,7 +379,8 @@ def main():
     print(f"Fetching Daily (1-Day) Technicals for BTST Analysis...")
     
     # Fetch 90 days to ensure proper Daily MACD and BB generation
-    spot_df = fetch_multiday_data(breeze, parsed['stock_code'], "NSE", "1day", days_back=90)
+    exchange = "BSE" if parsed['stock_code'] in ["BSESEN", "SENSEX", "BANKEX"] else "NSE"
+    spot_df = fetch_multiday_data(breeze, parsed['stock_code'], exchange, "1day", days_back=90)
     
     if spot_df.empty:
         print("[ERROR] Could not fetch historic 1D data. Check API or trading hours.")

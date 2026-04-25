@@ -20,9 +20,12 @@ def get_option_chain(broker: BaseBroker, stock_code: str, expiry_date: str) -> p
     """
     print(f"Fetching Option Chain for {stock_code} expiring on {expiry_date}")
     
-    # Sensex option symbol is BSESEN (Cash symbol is BSESN)
-    if stock_code.upper() == "BSESN":
+    # Standardize BSE Index symbols for Breeze
+    s = stock_code.upper()
+    if s in ["SENSEX", "BSESN", "BSESEN"]:
         stock_code = "BSESEN"
+    if s == "BANKEX":
+        stock_code = "BANKEX"
         
     # Determine the correct exchange code (NFO vs BFO)
     exch_code = "BFO" if stock_code.upper() in ["BSESEN", "BANKEX"] else "NFO"
@@ -241,15 +244,21 @@ class SecurityMasterCache:
 
 def get_dynamic_lot_size(stock_code: str) -> int:
     """Public wrapper to fetch lot size transparently."""
-    if stock_code.upper() == "BSESN": stock_code = "BSESEN"
+    s = stock_code.upper()
+    if s in ["SENSEX", "BSESN", "BSESEN"]: stock_code = "BSESEN"
+    if s == "BANKEX": stock_code = "BANKEX"
     return SecurityMasterCache.get_lot_size(stock_code)
 
 def get_expiries(stock_code: str, option_type: str = 'CE') -> list:
     """Public wrapper to list available expiry dates from the Security Master."""
-    if stock_code.upper() == "BSESN": stock_code = "BSESEN"
+    s = stock_code.upper()
+    if s in ["SENSEX", "BSESN", "BSESEN"]: stock_code = "BSESEN"
+    if s == "BANKEX": stock_code = "BANKEX"
     return SecurityMasterCache.get_expiries(stock_code, option_type)
 
 def get_strikes(stock_code: str, expiry_date, option_type: str = 'CE') -> list:
     """Public wrapper to list available strikes from the Security Master."""
-    if stock_code.upper() == "BSESN": stock_code = "BSESEN"
+    s = stock_code.upper()
+    if s in ["SENSEX", "BSESN", "BSESEN"]: stock_code = "BSESEN"
+    if s == "BANKEX": stock_code = "BANKEX"
     return SecurityMasterCache.get_strikes(stock_code, expiry_date, option_type)
