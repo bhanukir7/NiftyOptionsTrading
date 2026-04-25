@@ -119,6 +119,99 @@ class SafeBreeze(BaseBroker):
             dt = expiry_date
         return get_strikes(stock_code, dt)
 
+    def get_positions(self) -> List[Dict]:
+        """Fetch positions from Breeze, aggregate them, and filter closed ones."""
+        self.rate_limiter.wait_if_needed()
+        res = self.breeze.get_portfolio_positions()
+        self.rate_limiter.record_call()
+        
+        # We use a dictionary to aggregate positions by their unique identifier
+        # Key format: (stock_code, expiry_date, strike_price, right)
+        aggregated = {}
+
+        if res.get("Status") == 200 and res.get("Success"):
+            for pos in res["Success"]:
+                stock = pos.get("stock_code")
+                expiry = pos.get("expiry_date") or ""
+                strike = pos.get("strike_price") or ""
+                right = pos.get("right") or ""
+                exchange = pos.get("exchange_code")
+                
+                # Unique key for aggregation
+                key = (stock, expiry, strike, right)
+                
+                # Determine net quantity and side
+                # In Breeze F&O, 'action' is Buy/Sell and 'quantity' is the amount
+                q = 0
+                try:
+                    q = int(pos.get("quantity") or 0)
+                except:
+                    pass
+                
+                if pos.get("action", "").lower() == "sell":
+                    q = -q
+                
+                # If net_quantity is explicitly provided and non-zero, it usually overrides
+                net_q = pos.get("net_quantity")
+                if net_q is not None:
+                    try:
+                        q = int(net_q)
+                    except:
+                        pass
+
+                avg_price = float(pos.get("average_price") or 0)
+                ltp = float(pos.get("ltp") or 0)
+                pnl = pos.get("unrealized_profit_loss") or pos.get("pnl")
+                segment = pos.get("segment", "equity")
+                
+                if key not in aggregated:
+                    aggregated[key] = {
+                        "symbol": stock,
+                        "expiry": expiry,
+                        "strike": strike,
+                        "right": right,
+                        "quantity": 0,
+                        "total_cost": 0,
+                        "ltp": ltp,
+                        "pnl": 0,
+                        "exchange": exchange,
+                        "segment": segment
+                    }
+                
+                entry = aggregated[key]
+                entry["quantity"] += q
+                if q > 0: # Only average the Buy side for standard average price
+                    entry["total_cost"] += (avg_price * q)
+                
+                # Update LTP to latest seen for this key
+                entry["ltp"] = ltp
+                
+                if pnl is not None:
+                    entry["pnl"] += float(pnl)
+
+            # Finalize and filter
+            normalized = []
+            for entry in aggregated.values():
+                if entry["quantity"] != 0:
+                    # Final average price calculation
+                    if entry["quantity"] > 0:
+                        entry["average_price"] = entry["total_cost"] / entry["quantity"]
+                    else:
+                        # For short positions, use the last seen average price or 0
+                        # (Breeze usually provides avg price for shorts too)
+                        entry["average_price"] = entry["total_cost"] / abs(entry["quantity"]) if entry["total_cost"] else 0
+                    
+                    # If PnL wasn't provided or was 0, calculate it
+                    if entry["pnl"] == 0:
+                        entry["pnl"] = (entry["ltp"] - entry["average_price"]) * entry["quantity"]
+                    
+                    # Remove temporary keys
+                    del entry["total_cost"]
+                    normalized.append(entry)
+                    
+            return normalized
+        return []
+
     def log_api_usage(self):
         """Prints current API usage metrics to the console."""
         print(f"[API STATS] Used this minute: {len(self.rate_limiter.call_timestamps)}/100 | Used today: {self.rate_limiter.daily_calls}/5000")

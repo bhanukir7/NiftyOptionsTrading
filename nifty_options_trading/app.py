@@ -245,6 +245,18 @@ async def api_strikes(symbol: str = "NIFTY", expiry: str = "", option_type: str 
         _executor, lambda: broker.get_strikes(symbol.upper(), expiry)
     )
     return JSONResponse({"strikes": [float(s) for s in strikes]})
+ 
+@app.get("/api/positions")
+async def api_positions():
+    broker = _get_breeze()
+    loop = asyncio.get_event_loop()
+    try:
+        positions = await loop.run_in_executor(
+            _executor, lambda: broker.get_positions()
+        )
+        return JSONResponse({"positions": positions})
+    except Exception as e:
+        return JSONResponse({"positions": [], "error": str(e)})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1046,6 +1058,23 @@ async def get_trades_analysis(start_date: Optional[str] = None, end_date: Option
 
 MAX_DAILY_CALLS = 5000   # ICICI Breeze hard limit: 5000 calls/day
 MAX_PER_MIN     = 100    # ICICI Breeze hard limit: 100 calls/minute
+
+@app.get("/api/ltp")
+async def api_ltp(symbol: str = "NIFTY"):
+    broker = _get_breeze()
+    loop = asyncio.get_event_loop()
+    try:
+        # For Breeze, NIFTY is usually an index
+        exchange = "NSE"
+        if symbol.upper() in ["NIFTY", "CNXBAN", "NIFFIN"]:
+            exchange = "NSE"
+        
+        ltp = await loop.run_in_executor(
+            _executor, lambda: broker.get_ltp(symbol.upper(), exchange=exchange)
+        )
+        return JSONResponse({"symbol": symbol.upper(), "ltp": ltp})
+    except Exception as e:
+        return JSONResponse({"symbol": symbol.upper(), "ltp": 0, "error": str(e)})
 
 @app.get("/api/usage")
 async def api_usage():

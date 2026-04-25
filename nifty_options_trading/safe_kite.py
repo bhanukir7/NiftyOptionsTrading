@@ -203,6 +203,40 @@ class SafeKite(BaseBroker):
                 strikes.add(float(item['strike']))
         return sorted(list(strikes))
 
+    def get_positions(self) -> List[Dict]:
+        """Fetch positions from Kite and normalize them."""
+        self.rate_limiter.wait_if_needed()
+        # Kite has 'day' and 'net' positions. We usually want 'net'.
+        res = self.kite.positions()
+        self.rate_limiter.record_call()
+        
+        normalized = []
+        if res.get("net"):
+            for pos in res["net"]:
+                qty = int(pos.get("quantity", 0))
+                if qty != 0:
+                    avg_price = float(pos.get("average_price", 0))
+                    ltp = float(pos.get("last_price", 0))
+                    pnl = pos.get("pnl")
+                    if pnl is None:
+                        pnl = (ltp - avg_price) * qty
+                    else:
+                        pnl = float(pnl)
+
+                    normalized.append({
+                        "symbol": pos.get("tradingsymbol"),
+                        "expiry": pos.get("expiry").isoformat() if pos.get("expiry") else "",
+                        "strike": pos.get("strike"),
+                        "right": pos.get("instrument_type"),
+                        "quantity": qty,
+                        "average_price": avg_price,
+                        "ltp": ltp,
+                        "pnl": pnl,
+                        "exchange": pos.get("exchange"),
+                        "segment": "fno" if pos.get("instrument_type") in ["CE", "PE"] else "equity"
+                    })
+        return normalized
+
     # WebSocket
     def ws_connect(self):
         """Connect to the Zerodha Kite Ticker WebSocket."""

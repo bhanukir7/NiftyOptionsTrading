@@ -42,6 +42,11 @@ class BaseBroker(ABC):
         """Fetch available strike prices for a symbol and expiry."""
         pass
 
+    @abstractmethod
+    def get_positions(self) -> List[Dict]:
+        """Fetch current open positions from the broker."""
+        pass
+
     # WebSocket Methods
     @abstractmethod
     def ws_connect(self):

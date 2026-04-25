@@ -12,7 +12,22 @@
 **Release Version 1.9** — *April 24, 2026, 01:40 AM IST* (The Hedge-Fund Decision Pipeline)
 **Release Version 1.10** — *April 24, 2026, 12:30 PM IST* (The Observability & Efficiency Overhaul)
 **Release Version 2.0** — *April 24, 2026, 05:45 PM IST* (The Multi-Broker & Automation Overhaul)
-**Release Version 3.0** — *April 25, 2026, 12:45 PM IST* (The Zero-Cost & Full Broker Evolution)
+**Release Version 3.1** — *April 25, 2026, 02:40 PM IST* (The Portfolio Intelligence Overhaul)
+
+## 💼 Version 3.1: The Portfolio Intelligence & PnL Simulation Overhaul
+
+This minor release introduces advanced portfolio observability and a mathematical simulation engine for real-time PnL projections across all brokers.
+
+### Key 3.1 Improvements:
+- **💼 Live Positions Dashboard**: Added a unified tab to monitor outstanding positions across all three brokers (**ICICI**, **Angle**, **Zerodha**) with standardized normalization for stocks and options.
+- **📈 Advanced PnL Simulator**: Integrated a full **Black-Scholes Greek Engine** that projects "True PnL" by simulating Delta (Price), Vega (IV), and Theta (Time).
+- **💥 IV Crush & Theta Modeling**: Dedicated controls to simulate volatility drops and weekend time decay, helping traders visualize the impact of time and volatility on their premiums.
+- **📐 Dual-Input Simulator**: Features both a high-precision manual spot entry and a quick-action percentage slider for "What-If" market scenarios.
+- **🔄 Smart Position Aggregation**: Automatically consolidates multiple fills and partial trades into clean, net outstanding positions.
+- **🌍 Automated Index Scaling**: Intelligent scaling for Sensex (BSESEN) positions, ensuring accurate delta projections relative to Nifty spot movements.
+- **⚡ Real-Time LTP Integration**: Added a dedicated backend endpoint for high-frequency index spot fetching to ensure simulator midpoints are always live.
+
+---
 
 ## 🚀 Version 3.0: The Zero-Cost & Full Broker Evolution
 

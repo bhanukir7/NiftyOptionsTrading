@@ -295,6 +295,39 @@ class SafeSmartAPI(BaseBroker):
                     pass
         return sorted(list(strikes))
 
+    def get_positions(self) -> List[Dict]:
+        """Fetch positions from SmartAPI and normalize them."""
+        self.rate_limiter.wait_if_needed()
+        res = self.smart.position()
+        self.rate_limiter.record_call()
+        
+        normalized = []
+        if res.get("status") and res.get("data"):
+            for pos in res["data"]:
+                qty = int(pos.get("netqty", 0))
+                if qty != 0:
+                    avg_price = float(pos.get("avgprice", 0))
+                    ltp = float(pos.get("ltp", 0))
+                    pnl = pos.get("unrealisedpnl")
+                    if pnl is None:
+                        pnl = (ltp - avg_price) * qty
+                    else:
+                        pnl = float(pnl)
+
+                    normalized.append({
+                        "symbol": pos.get("tradingsymbol"),
+                        "expiry": pos.get("expirydate"),
+                        "strike": pos.get("strikeprice"),
+                        "right": pos.get("optiontype"),
+                        "quantity": qty,
+                        "average_price": avg_price,
+                        "ltp": ltp,
+                        "pnl": pnl,
+                        "exchange": pos.get("exchange"),
+                        "segment": "fno" if pos.get("instrumenttype", "").lower().startswith("opt") else "equity"
+                    })
+        return normalized
+
     @property
     def on_ticks(self):
         return self._on_ticks_callback

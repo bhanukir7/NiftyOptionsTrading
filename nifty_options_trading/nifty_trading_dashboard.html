@@ -924,6 +924,7 @@
         <button class="tab-btn" id="tab-monitor" onclick="switchTab('monitor')" role="tab">🔭 Max-Pain Monitor</button>
         <button class="tab-btn" id="tab-engine" onclick="switchTab('engine')" role="tab">🤖 Autonomous Engine</button>
         <button class="tab-btn" id="tab-advanced" onclick="switchTab('advanced')" role="tab">📡 Signal Hub</button>
+        <button class="tab-btn" id="tab-positions" onclick="switchTab('positions')" role="tab">💼 Live Positions</button>
         <button class="tab-btn" id="tab-journal" onclick="switchTab('journal')" role="tab">📈 Trade Journal</button>
         <button class="tab-btn" id="tab-risk" onclick="switchTab('risk')" role="tab">⚙️ Risk Engine</button>
         <button class="tab-btn" id="tab-usage" onclick="switchTab('usage')" role="tab">🚦 API Status</button>
@@ -1573,6 +1574,88 @@
       <!-- ════════════════════════════════════════════════════════════════════════
      TAB 7 — TRADE JOURNAL (Performance Analysis)
      ════════════════════════════════════════════════════════════════════════════ -->
+      <!-- ════════════════════════════════════════════════════════════════════════
+     TAB — LIVE POSITIONS
+════════════════════════════════════════════════════════════════════════════ -->
+      <div id="panel-positions" class="panel">
+        <!-- PnL Simulator -->
+        <div class="card" style="margin-bottom:12px; background:linear-gradient(135deg, var(--bg2), var(--bg3))">
+          <div class="card-title">Advanced PnL Simulator (Greeks & Projection)</div>
+          <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap">
+            <div style="flex:1; min-width:400px">
+              <div class="grid g4" style="margin-bottom:12px">
+                <div>
+                   <label>Spot Price</label>
+                   <input type="number" id="sim-spot-proj" oninput="onManualSpotChange()" style="font-family:'JetBrains Mono'; border-color:var(--blue)">
+                </div>
+                <div>
+                   <label>IV Change (%)</label>
+                   <input type="number" id="sim-iv-change" value="0" step="1" oninput="updateProjection()" style="font-family:'JetBrains Mono'; border-color:var(--orange)">
+                   <small style="font-size:9px; color:var(--text3)">-ve for IV Crush</small>
+                </div>
+                <div>
+                   <label>Days to Hold</label>
+                   <input type="number" id="sim-days-hold" value="0" min="0" max="30" oninput="updateProjection()" style="font-family:'JetBrains Mono'; border-color:var(--cyan)">
+                   <small style="font-size:9px; color:var(--text3)">0 = Today</small>
+                </div>
+                <div>
+                   <label>Current Spot</label>
+                   <div id="sim-spot-ref" style="font-family:'JetBrains Mono'; font-size:14px; padding:6px; color:var(--text2)">—</div>
+                </div>
+              </div>
+              <div style="display:flex; justify-content:space-between; margin-bottom:8px">
+                <span style="font-size:12px; color:var(--text2)">Nifty Change: <b id="sim-pct-text">0.00%</b></span>
+              </div>
+              <input type="range" id="sim-slider" min="-5" max="5" step="0.1" value="0" 
+                oninput="onSliderChange()" style="height:6px; background:var(--bg4); border-radius:3px; appearance:none; cursor:pointer">
+            </div>
+            <div class="metric" style="background:rgba(255,255,255,0.05); min-width:160px">
+              <div class="metric-label">Projected Total PnL</div>
+              <div id="sim-total-pnl" class="metric-value">₹0</div>
+            </div>
+            <button class="btn btn-sm" onclick="resetSimulator()" style="width:auto; margin:0">Reset ↺</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title" style="display:flex; justify-content:space-between; align-items:center">
+            <span>Outstanding Positions (Real-time Evaluation)</span>
+            <div style="display:flex; gap:10px; align-items:center">
+              <label style="margin:0; font-size:10px">Filter:</label>
+              <select id="pos-segment-filter" onchange="renderPositions(currentPositions)" style="width:120px; padding:2px 6px; font-size:11px">
+                <option value="all">All Positions</option>
+                <option value="fno" selected>F&O Only</option>
+                <option value="equity">Equity Only</option>
+              </select>
+            </div>
+          </div>
+          <div id="pos-error" class="error-box" style="display:none"></div>
+          <div style="overflow-x:auto">
+            <table class="tbl" id="pos-tbl">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Expiry / Strike</th>
+                  <th>Qty</th>
+                  <th>Avg. Price</th>
+                  <th>LTP</th>
+                  <th>Unrealized PnL</th>
+                  <th>Exchange</th>
+                </tr>
+              </thead>
+              <tbody id="pos-body">
+                <tr><td colspan="7" style="text-align:center; padding:40px; color:var(--text3)">Loading positions...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="pos-empty" class="info-box" style="display:none">No active positions found in your broker account.</div>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:10px">
+          <button class="btn btn-sm" onclick="fetchPositions()">Refresh Now ⟳</button>
+          <span id="pos-last-refreshed" style="font-size:11px; color:var(--text3); align-self:center"></span>
+        </div>
+      </div>
+
       <div id="panel-journal" class="panel">
         <div class="card" style="margin-bottom:12px">
           <div class="card-title"
@@ -1727,7 +1810,7 @@
     }
 
     // ── Tab switching ─────────────────────────────────────────────────────────────
-    const TABS = ['v3', 'btst', 'daytrading', 'global', 'monitor', 'engine', 'advanced', 'journal', 'risk', 'usage'];
+    const TABS = ['v3', 'btst', 'daytrading', 'global', 'monitor', 'engine', 'advanced', 'positions', 'journal', 'risk', 'usage'];
     function switchTab(id) {
       TABS.forEach(t => {
         const p = g('panel-' + t);
@@ -1740,6 +1823,7 @@
       if (id === 'engine') refreshEngineStatus();
       if (id === 'advanced') { refreshAdvancedSignals(); refreshAdvancedSnapshots(); }
       if (id === 'journal') loadJournal();
+      if (id === 'positions') fetchPositions();
     }
 
     // ── Clock ─────────────────────────────────────────────────────────────────────
@@ -2621,6 +2705,201 @@
       }
     }, 600000);
 
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    //  TAB — LIVE POSITIONS logic
+    // ══════════════════════════════════════════════════════════════════════════════
+    let currentPositions = [];
+    let baseNiftySpot = 0;
+
+    async function fetchPositions() {
+      try {
+        const d = await apiFetch('/api/positions');
+        currentPositions = d.positions || [];
+        
+        // Fetch LIVE Nifty Spot for the simulator base
+        try {
+          const ltpData = await apiFetch('/api/ltp?symbol=NIFTY');
+          if (ltpData.ltp > 0) {
+            baseNiftySpot = ltpData.ltp;
+          } else {
+            // Fallback to V3 spot if LTP fails
+            baseNiftySpot = parseFloat(g('v3-spot')?.textContent?.replace('₹', '').replace(',', '')) || 23800;
+          }
+        } catch { 
+          baseNiftySpot = 23800; 
+        }
+        
+        g('sim-spot-ref').textContent = baseNiftySpot.toFixed(2);
+        if (g('sim-spot-proj').value === '') {
+          g('sim-spot-proj').value = baseNiftySpot.toFixed(2);
+        }
+        
+        renderPositions(currentPositions);
+        g('pos-last-refreshed').textContent = "Last updated: " + new Date().toLocaleTimeString('en-IN');
+        hideErr('pos-error');
+        updateProjection(); // Initial sync
+      } catch (e) {
+        showErr('pos-error', "Position Load Error: " + e.message);
+      }
+    }
+
+    function onSliderChange() {
+      const pct = parseFloat(g('sim-slider').value);
+      const newSpot = baseNiftySpot * (1 + (pct / 100));
+      g('sim-spot-proj').value = newSpot.toFixed(2);
+      updateProjection();
+    }
+
+    function onManualSpotChange() {
+      const projSpot = parseFloat(g('sim-spot-proj').value);
+      if (!isNaN(projSpot) && baseNiftySpot > 0) {
+        const pct = ((projSpot / baseNiftySpot) - 1) * 100;
+        g('sim-slider').value = pct.toFixed(2);
+        updateProjection();
+      }
+    }
+
+    // ── Black-Scholes Math ──────────────────────────────────────────────────
+    const BS = {
+      ncdf: function(x) {
+        const t = 1 / (1 + 0.2316419 * Math.abs(x));
+        const d = 0.3989423 * Math.exp(-x * x / 2);
+        const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.7814779 + t * (-1.821256 + t * 1.3302744))));
+        return x > 0 ? 1 - p : p;
+      },
+      price: function(S, K, T, r, v, isCall) {
+        if (T <= 0) return isCall ? Math.max(0, S - K) : Math.max(0, K - S);
+        const d1 = (Math.log(S / K) + (r + v * v / 2) * T) / (v * Math.sqrt(T));
+        const d2 = d1 - v * Math.sqrt(T);
+        if (isCall) return S * this.ncdf(d1) - K * Math.exp(-r * T) * this.ncdf(d2);
+        return K * Math.exp(-r * T) * this.ncdf(-d2) - S * this.ncdf(-d1);
+      }
+    };
+
+    function parseExpiry(s) {
+      if (!s) return null;
+      try {
+        if (s.includes('-')) {
+          const p = s.split('-');
+          const m = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+          return new Date(parseInt(p[2]), m[p[1]] || 0, parseInt(p[0]));
+        }
+        return new Date(s);
+      } catch { return null; }
+    }
+
+    function updateProjection() {
+      const projSpot = parseFloat(g('sim-spot-proj').value) || baseNiftySpot;
+      const ivChange = parseFloat(g('sim-iv-change').value) / 100;
+      const daysHold = parseFloat(g('sim-days-hold').value);
+      const pct = ((projSpot / baseNiftySpot) - 1) * 100;
+      
+      g('sim-pct-text').textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+      
+      const filter = g('pos-segment-filter').value;
+      let filtered = currentPositions;
+      if (filter !== 'all') {
+        filtered = currentPositions.filter(p => (p.segment || 'equity').toLowerCase() === filter);
+      }
+
+      let totalProjPnL = 0;
+      const rows = g('pos-body').querySelectorAll('tr');
+      
+      filtered.forEach((p, i) => {
+        let pnlChange = 0;
+        
+        if (p.segment === 'fno') {
+          const isSensex = (p.symbol || '').includes('BSESEN') || (p.exchange === 'BFO');
+          const ratio = isSensex ? 3.33 : 1.0;
+          const S = baseNiftySpot * ratio;
+          const K = parseFloat(p.strike);
+          const isCall = (p.right || '').toUpperCase().includes('C') || (p.right || '').toUpperCase().includes('CALL');
+          
+          if (!isNaN(K)) {
+            // Estimate Time to Expiry
+            const expDate = parseExpiry(p.expiry);
+            let tDays = expDate ? (expDate - new Date()) / (1000*60*60*24) : 7;
+            tDays = Math.max(0.5, tDays); // Min half day
+            
+            const T_years = tDays / 365;
+            const T_future = Math.max(0, tDays - daysHold) / 365;
+            
+            // Initial IV estimation (fallback 15% if ltp is weird)
+            let IV = 0.15;
+            // Apply IV change
+            const IV_future = Math.max(0.01, IV + ivChange);
+            
+            const pNow = BS.price(S, K, T_years, 0.07, IV, isCall);
+            const pFuture = BS.price(projSpot * ratio, K, T_future, 0.07, IV_future, isCall);
+            
+            // We use the relative change from current LTP for better accuracy
+            const priceDelta = pFuture - pNow;
+            pnlChange = priceDelta * p.quantity;
+          }
+        } else {
+          pnlChange = (pct / 100) * (p.ltp * p.quantity);
+        }
+        
+        const projPnL = (p.pnl || 0) + pnlChange;
+        totalProjPnL += projPnL;
+        
+        if (rows[i] && rows[i].cells[5]) {
+          const cell = rows[i].cells[5];
+          let subText = `Proj. Δ: ${fmtINR(pnlChange)}`;
+          if (daysHold > 0) subText += ` | ${daysHold}d`;
+          if (ivChange !== 0) subText += ` | IV ${ivChange > 0 ? '+' : ''}${ivChange*100}%`;
+          
+          cell.innerHTML = `${fmtINR(projPnL)} <br><small class="dim" style="font-size:9px">${subText}</small>`;
+          cell.className = projPnL >= 0 ? 'pos mono' : 'neg mono';
+        }
+      });
+      
+      const totElem = g('sim-total-pnl');
+      totElem.textContent = fmtINR(totalProjPnL);
+      totElem.className = totalProjPnL >= 0 ? 'metric-value pos' : 'metric-value neg';
+    }
+
+    function resetSimulator() {
+      g('sim-slider').value = 0;
+      g('sim-spot-proj').value = baseNiftySpot.toFixed(2);
+      g('sim-iv-change').value = 0;
+      g('sim-days-hold').value = 0;
+      updateProjection();
+    }
+
+    function renderPositions(posList) {
+      const tbody = g('pos-body');
+      const empty = g('pos-empty');
+      const filter = g('pos-segment-filter').value;
+      
+      let filtered = posList;
+      if (filter !== 'all') {
+        filtered = posList.filter(p => (p.segment || 'equity').toLowerCase() === filter);
+      }
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text3)">No positions found for this filter.</td></tr>';
+        empty.style.display = posList.length === 0 ? 'block' : 'none';
+        return;
+      }
+      
+      empty.style.display = 'none';
+      tbody.innerHTML = filtered.map(p => {
+        const pnlCls = p.pnl >= 0 ? 'pos' : 'neg';
+        return `
+          <tr>
+            <td class="mono" style="font-weight:700">${p.symbol}</td>
+            <td class="dim" style="font-size:10px">${p.expiry || '—'} / ${p.strike || '—'} ${p.right || ''}</td>
+            <td class="mono" style="font-weight:600">${p.quantity}</td>
+            <td class="dim mono">${fmtNum(p.average_price)}</td>
+            <td class="mono">${fmtNum(p.ltp)}</td>
+            <td class="${pnlCls} mono" style="font-weight:700">${fmtINR(p.pnl)}</td>
+            <td><span class="badge badge-flat">${p.exchange}</span></td>
+          </tr>
+        `;
+      }).join('');
+    }
 
   </script>
 </body>
