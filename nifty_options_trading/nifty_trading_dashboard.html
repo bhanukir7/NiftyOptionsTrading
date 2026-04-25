@@ -918,6 +918,7 @@
 
       <nav class="tabs-wrap" role="tablist">
         <button class="tab-btn active" id="tab-v3" onclick="switchTab('v3')" role="tab">📊 V3 Multi-Strike</button>
+        <button class="tab-btn" id="tab-morning" onclick="switchTab('morning')" role="tab">🌅 Morning Trade</button>
         <button class="tab-btn" id="tab-btst" onclick="switchTab('btst')" role="tab">📅 BTST Evaluator</button>
         <button class="tab-btn" id="tab-daytrading" onclick="switchTab('daytrading')" role="tab">🎯 Day Trading</button>
         <button class="tab-btn" id="tab-global" onclick="switchTab('global')" role="tab">🌍 Global Macro</button>
@@ -1023,6 +1024,126 @@
                 <tbody id="v3-strikes-body"></tbody>
               </table>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════════════════════════════════════════
+     TAB — MORNING TRADE PANEL
+════════════════════════════════════════════════════════════════════════════ -->
+      <div id="panel-morning" class="panel">
+        <div class="card" style="border-left: 4px solid var(--blue); background: linear-gradient(to bottom right, var(--bg2), var(--bg3))">
+          <!-- Header Row -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
+            <div>
+              <h2 style="font-size:16px; font-weight:700">Morning Trade Panel</h2>
+              <p style="font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:1px">Intraday ORB + Multi-Index Confirmation</p>
+            </div>
+            <div style="display:flex; gap:12px; align-items:center">
+              <div class="metric" style="padding:6px 12px; background:rgba(255,255,255,0.03)">
+                <div class="metric-label" style="margin-bottom:2px">NIFTY SPOT</div>
+                <div id="mo-spot" class="metric-value" style="font-size:14px">—</div>
+              </div>
+              <div id="mo-badge"></div>
+              <div class="metric" style="padding:6px 12px; background:rgba(255,255,255,0.03)">
+                <div class="metric-label" style="margin-bottom:2px">CONFIDENCE</div>
+                <div id="mo-conf" class="metric-value" style="font-size:14px; color:var(--cyan-txt)">0%</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Core Metrics Row -->
+          <div class="grid g4" style="margin-bottom:12px">
+            <div class="metric">
+              <div class="metric-label">VWAP Bias</div>
+              <div id="mo-vwap-val" class="metric-value" style="font-size:13px">—</div>
+              <div id="mo-vwap-bias" style="font-size:10px; margin-top:2px"></div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">ORB Range</div>
+              <div id="mo-orb-range" class="metric-value" style="font-size:13px">—</div>
+              <div style="font-size:10px; color:var(--text3); margin-top:2px">9:15 - 9:30 AM</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">EMA (9 / 21)</div>
+              <div id="mo-ema" class="metric-value" style="font-size:13px">—</div>
+              <div id="mo-ema-trend" style="font-size:10px; margin-top:2px"></div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">RSI (14)</div>
+              <div id="mo-rsi" class="metric-value" style="font-size:13px">—</div>
+              <div id="mo-rsi-status" style="font-size:10px; margin-top:2px"></div>
+            </div>
+          </div>
+
+          <!-- Confirmation Row -->
+          <div class="card" style="background:rgba(255,255,255,0.02); margin-bottom:12px; border:1px dashed var(--border)">
+            <div class="card-title" style="margin-bottom:8px; font-size:9px">Cross-Index Confirmation</div>
+            <div style="display:flex; justify-content:space-between; align-items:center">
+              <div style="display:flex; gap:24px">
+                <div>
+                  <span style="font-size:10px; color:var(--text3)">Bank Nifty:</span>
+                  <span id="mo-bn-status" style="font-size:11px; font-weight:600; margin-left:6px">—</span>
+                </div>
+                <div>
+                  <span style="font-size:10px; color:var(--text3)">Sensex:</span>
+                  <span id="mo-sx-status" style="font-size:11px; font-weight:600; margin-left:6px">—</span>
+                </div>
+              </div>
+              <div id="mo-aligned" class="badge" style="font-size:10px">NOT ALIGNED</div>
+            </div>
+          </div>
+
+          <!-- Structure Row -->
+          <div class="grid g3" style="margin-bottom:12px">
+            <div class="metric" style="background:transparent; border:none; padding:0">
+              <div class="metric-label" style="font-size:9px">Breakout Status</div>
+              <div id="mo-breakout" style="font-size:12px; font-weight:600">—</div>
+            </div>
+            <div class="metric" style="background:transparent; border:none; padding:0">
+              <div class="metric-label" style="font-size:9px">Trend Quality</div>
+              <div id="mo-trend-quality" style="font-size:12px; font-weight:600">—</div>
+            </div>
+            <div class="metric" style="background:transparent; border:none; padding:0">
+              <div class="metric-label" style="font-size:9px">VWAP Sentiment</div>
+              <div id="mo-vwap-sentiment" style="font-size:12px; font-weight:600">—</div>
+            </div>
+          </div>
+
+          <!-- Trade Setup Row -->
+          <div id="mo-trade-setup" class="card" style="display:none; background:rgba(34, 197, 94, 0.05); border-color:rgba(34, 197, 94, 0.2)">
+            <div class="card-title" style="color:var(--green-txt); font-size:10px">Suggested Trade Setup</div>
+            <div class="grid g4">
+              <div>
+                <div class="metric-label">Entry</div>
+                <div id="mo-entry" style="font-size:13px; font-weight:700">Breakout</div>
+              </div>
+              <div>
+                <div class="metric-label">Strike</div>
+                <div id="mo-strike" class="mono" style="font-size:13px; font-weight:700">—</div>
+              </div>
+              <div>
+                <div class="metric-label">Stop Loss</div>
+                <div id="mo-sl" class="neg mono" style="font-size:13px; font-weight:700">—</div>
+              </div>
+              <div>
+                <div class="metric-label">Targets</div>
+                <div id="mo-targets" class="pos" style="font-size:11px; font-weight:600">—</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Reasoning Row -->
+          <details style="margin-top:12px">
+            <summary style="font-size:11px; color:var(--blue-txt); cursor:pointer; user-select:none; outline:none">View Decision Reasoning & Filters</summary>
+            <div id="mo-reasons" style="margin-top:10px; font-size:11px; color:var(--text2); display:flex; flex-wrap:wrap; gap:6px">
+              <!-- Reasons chips added here -->
+            </div>
+          </details>
+
+          <div style="margin-top:16px; display:flex; justify-content:space-between; align-items:center">
+             <button class="btn btn-sm" id="btn-morning" onclick="runMorning()" style="width:auto; margin:0">Refresh Analysis ↺</button>
+             <span id="mo-time" style="font-size:10px; color:var(--text3)">Last updated: —</span>
           </div>
         </div>
       </div>
@@ -1813,7 +1934,7 @@
     }
 
     // ── Tab switching ─────────────────────────────────────────────────────────────
-    const TABS = ['v3', 'btst', 'daytrading', 'global', 'monitor', 'engine', 'advanced', 'positions', 'journal', 'risk', 'usage'];
+    const TABS = ['v3', 'morning', 'btst', 'daytrading', 'global', 'monitor', 'engine', 'advanced', 'positions', 'journal', 'risk', 'usage'];
     function switchTab(id) {
       TABS.forEach(t => {
         const p = g('panel-' + t);
@@ -1821,6 +1942,7 @@
         if (p) p.classList.toggle('active', t === id);
         if (bt) bt.classList.toggle('active', t === id);
       });
+      if (id === 'morning') runMorning();
       if (id === 'usage') loadUsage();
       if (id === 'global') loadWorldMarkets();
       if (id === 'engine') refreshEngineStatus();
@@ -2002,6 +2124,104 @@
         renderBTST(d);
       } catch (e) { showErr('btst-error', e.message); }
       finally { setLoading('btn-btst', false); }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    //  TAB — MORNING TRADE PANEL
+    // ══════════════════════════════════════════════════════════════════════════════
+    async function runMorning() {
+      setLoading('btn-morning', true);
+      try {
+        const d = await apiFetch('/api/morning/analyze', 'POST', { symbol: 'NIFTY' });
+        renderMorning(d);
+      } catch (e) { console.error("Morning analysis failed:", e); }
+      finally { setLoading('btn-morning', false); }
+    }
+
+    function renderMorning(d) {
+      if (!d) return;
+      const levels = d.levels || {};
+      const ind = d.indicators || {};
+      const struct = d.structure || {};
+      const conf = d.confirmation || {};
+      const trade = d.trade || {};
+
+      g('mo-spot').textContent = (levels.spot || levels.vwap) ? fmtNum(levels.spot || levels.vwap) : '—';
+      g('mo-conf').innerHTML = `${d.confidence || 0}% <span style="font-size:9px; opacity:0.6; vertical-align:middle; margin-left:4px">(${d.source || 'Breeze'})</span>`;
+      g('mo-conf').style.color = d.confidence > 75 ? 'var(--green-txt)' : d.confidence > 50 ? 'var(--orange-txt)' : 'var(--red-txt)';
+      
+      // Badge
+      const badgeMap = {
+        'BUY CE': { cls: 'badge-buy', text: '🟢 BUY CE' },
+        'BUY PE': { cls: 'badge-sell', text: '🔴 BUY PE' },
+        'NO TRADE': { cls: 'badge-wait', text: '🟡 NO TRADE' }
+      };
+      const b = badgeMap[d.signal] || badgeMap['NO TRADE'];
+      g('mo-badge').innerHTML = `<span class="badge ${b.cls}" style="font-size:14px; padding:6px 16px">${b.text}</span>`;
+      
+      // Metrics
+      g('mo-vwap-val').textContent = fmtNum(levels.vwap);
+      g('mo-vwap-bias').textContent = struct.vwap_bias || '—';
+      g('mo-vwap-bias').className = struct.vwap_bias === 'Bullish' ? 'pos' : struct.vwap_bias === 'Bearish' ? 'neg' : 'neu';
+      
+      g('mo-orb-range').textContent = (levels.orb_low && levels.orb_high) ? `${fmtNum(levels.orb_low)} - ${fmtNum(levels.orb_high)}` : '—';
+      g('mo-ema').textContent = (ind.ema9 && ind.ema21) ? `${fmtNum(ind.ema9)} / ${fmtNum(ind.ema21)}` : '—';
+      g('mo-ema-trend').textContent = struct.trend || '—';
+      g('mo-ema-trend').className = struct.trend === 'Bullish' ? 'pos' : 'neg';
+      
+      g('mo-rsi').textContent = fmtNum(ind.rsi);
+      g('mo-rsi-status').textContent = ind.rsi > 60 ? 'Strong Bullish' : ind.rsi < 40 ? 'Strong Bearish' : (ind.rsi ? 'Neutral' : '—');
+      g('mo-rsi-status').className = ind.rsi > 55 ? 'pos' : ind.rsi < 45 ? 'neg' : 'neu';
+      
+      // Confirmation
+      const fmtConf = (s) => s === 'above_vwap' ? '<span class="pos">Above VWAP</span>' : s === 'below_vwap' ? '<span class="neg">Below VWAP</span>' : '<span class="dim">N/A</span>';
+      g('mo-bn-status').innerHTML = fmtConf(conf.banknifty);
+      g('mo-sx-status').innerHTML = fmtConf(conf.sensex);
+      
+      const al = g('mo-aligned');
+      al.textContent = conf.aligned ? 'ALIGNED' : 'NOT ALIGNED';
+      al.className = 'badge ' + (conf.aligned ? 'badge-buy' : 'badge-sell');
+      
+      // Structure
+      g('mo-breakout').textContent = struct.breakout || '—';
+      g('mo-breakout').className = String(struct.breakout || '').includes('Above') ? 'pos' : String(struct.breakout || '').includes('Below') ? 'neg' : 'neu';
+      g('mo-trend-quality').textContent = struct.trend || '—';
+      g('mo-trend-quality').className = struct.trend === 'Bullish' ? 'pos' : 'neg';
+      g('mo-vwap-sentiment').textContent = struct.vwap_bias || '—';
+      g('mo-vwap-sentiment').className = struct.vwap_bias === 'Bullish' ? 'pos' : struct.vwap_bias === 'Bearish' ? 'neg' : 'neu';
+      
+      // Trade Setup
+      const ts = g('mo-trade-setup');
+      if (d.signal && d.signal !== 'NO TRADE' && trade.strike) {
+        ts.style.display = 'block';
+        g('mo-entry').textContent = trade.entry_type || 'Breakout';
+        g('mo-strike').textContent = trade.strike || '—';
+        g('mo-sl').textContent = fmtNum(trade.sl);
+        g('mo-targets').textContent = (trade.targets || []).join(' → ');
+        
+        // Color coding for setup
+        const isCE = d.signal === 'BUY CE';
+        ts.style.background = isCE ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.05)';
+        ts.style.borderColor = isCE ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+        g('mo-strike').className = isCE ? 'pos mono' : 'neg mono';
+      } else {
+        ts.style.display = 'none';
+      }
+      
+      // Reasons
+      const rContainer = g('mo-reasons');
+      rContainer.innerHTML = '';
+      (d.reasons || []).forEach(r => {
+        const span = document.createElement('span');
+        span.style.padding = '2px 8px';
+        span.style.background = 'var(--bg4)';
+        span.style.borderRadius = '4px';
+        span.style.border = '1px solid var(--border)';
+        span.textContent = r;
+        rContainer.appendChild(span);
+      });
+      
+      g('mo-time').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
     }
 
     function renderBTST(d) {
@@ -2205,12 +2425,13 @@
       }).join('');
 
       const ind = d.indicators || {};
+      const volRatio = (ind.avg_volume && ind.avg_volume > 0) ? (ind.volume / ind.avg_volume) : 0;
       const items = [
         { name: 'EMA 9', val: ind.ema9, max: 1, col: '#6366f1' },
         { name: 'EMA 21', val: ind.ema21, max: 1, col: '#a855f7' },
         { name: 'VWAP', val: ind.vwap, max: 1, col: '#3b82f6' },
         { name: 'RSI (14)', val: ind.rsi, max: 100, col: ind.rsi > 60 ? '#22c55e' : ind.rsi < 40 ? '#ef4444' : '#f59e0b' },
-        { name: 'Vol / Avg (1.5x)', val: (ind.volume / ind.avg_volume).toFixed(2), max: 3, col: (ind.volume / ind.avg_volume) >= 1.5 ? '#22c55e' : '#f59e0b' }
+        { name: 'Vol / Avg (1.5x)', val: volRatio.toFixed(2), max: 3, col: volRatio >= 1.5 ? '#22c55e' : '#f59e0b' }
       ];
 
       g('dt-indicators').innerHTML = items.map(i => {

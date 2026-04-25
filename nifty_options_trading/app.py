@@ -85,6 +85,7 @@ from nifty_options_trading.evaluate_daytrading import (
     analyze_daytrading_signals, generate_daytrading_verdict
 )
 from nifty_options_trading.strict_validator import validate_strict_signal
+from nifty_options_trading.morning_strategy import morning_trade_panel
 
 # ── Read env once ─────────────────────────────────────────────────────────────
 API_KEY       = os.getenv("API_KEY", "")
@@ -265,18 +266,22 @@ async def api_positions():
 
 def _get_exchange(symbol: str) -> str:
     s = symbol.upper()
-    if s in ["BSESEN", "SENSEX", "BANKEX", "BSESN", "BSEX"]:
+    # Explicitly map known BSE index symbols
+    if s in ["BSESEN", "SENSEX", "BANKEX", "BSESN", "BSEX", "SENSEX50"]:
         return "BSE"
     return "NSE"
 
 
 def _get_cash_symbol(symbol: str) -> str:
     s = symbol.upper()
-    if s in ["BSESEN", "SENSEX"]:
-        return "BSESN"
-    if s == "BANKEX":
-        return "BSEX"
-    return s
+    # Map friendly names to ICICI Breeze cash symbols
+    mapping = {
+        "BSESEN": "BSESN",
+        "SENSEX": "BSESN",
+        "BANKEX": "BSEX",
+        "SENSEX50": "SNX50"
+    }
+    return mapping.get(s, s)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -319,9 +324,17 @@ def _run_v3(req: V3Request) -> dict:
     exchange = _get_exchange(stock_code)
     cash_sym = _get_cash_symbol(stock_code)
     print(f"[DEBUG] Fetching 5m data for {cash_sym} on {exchange}...")
-    spot_df = fetch_multiday_data(breeze, cash_sym, exchange, "5minute", days_back=7)
+    try:
+        spot_df = fetch_multiday_data(breeze, cash_sym, exchange, "5minute", days_back=7)
+    except Exception as e:
+        print(f"[ERROR] V3 spot fetch failed: {e}")
+        spot_df = pd.DataFrame()
+
     if spot_df.empty:
-        raise HTTPException(status_code=500, detail="Could not fetch spot data. Check API or trading hours.")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Spot data unavailable for {cash_sym} ({exchange}). Please verify API session or try during market hours."
+        )
 
     signal_data = analyze_advanced_indicators(spot_df)
     verdict = generate_verdict(signal_data, req.option_type.upper())
@@ -554,10 +567,18 @@ def _run_btst(req: BTSTRequest) -> dict:
     exchange = _get_exchange(stock_code)
     cash_sym = _get_cash_symbol(stock_code)
     print(f"[DEBUG] Fetching 1D data for {cash_sym} on {exchange}...")
-    spot_df = fetch_multiday_data(breeze, cash_sym, exchange, "1day", days_back=90)
+    try:
+        spot_df = fetch_multiday_data(breeze, cash_sym, exchange, "1day", days_back=90)
+    except Exception as e:
+        print(f"[ERROR] fetch_multiday_data crashed: {e}")
+        spot_df = pd.DataFrame()
+
     if spot_df.empty:
-        print(f"[ERROR] Historical data fetch failed for {cash_sym} ({exchange}). Response was empty.")
-        raise HTTPException(status_code=500, detail=f"Could not fetch 1D historic data for {cash_sym} on {exchange}.")
+        print(f"[ERROR] Historical data fetch failed for {cash_sym} ({exchange}). No recovery possible.")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Historical data unavailable for {cash_sym} ({exchange}). Breeze API is unresponsive and fallback data was not found."
+        )
 
     signal_data = analyze_advanced_indicators(spot_df)
     spot_price  = signal_data.get("close", 0.0)
@@ -792,6 +813,93 @@ async def global_analyze(req: GlobalRequest):
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(_executor, lambda: _run_global(req))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return JSONResponse(result)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  POST /api/morning/analyze  — Morning Trade Panel Evaluator
+# ══════════════════════════════════════════════════════════════════════════════
+
+class MorningRequest(BaseModel):
+    symbol: str = "NIFTY"
+    capital: float = 50_000.0
+
+def _run_morning(req: MorningRequest) -> dict:
+    from nifty_options_trading.evaluate_contract_V3 import fetch_multiday_data
+    from nifty_options_trading.alerts import send_alert
+    
+    breeze = _get_breeze()
+    
+    # 1. Fetch Data for Nifty, Bank Nifty, and Sensex
+    # Interval 5min for stability, 1min also possible but 5min is standard for ORB
+    try:
+        nifty_df = fetch_multiday_data(breeze, "NIFTY", "NSE", "5minute", days_back=2)
+    except Exception: nifty_df = pd.DataFrame()
+    
+    try:
+        bn_df = fetch_multiday_data(breeze, "CNXBAN", "NSE", "5minute", days_back=2)
+    except Exception: bn_df = pd.DataFrame()
+    
+    try:
+        sx_df = fetch_multiday_data(breeze, "BSESN", "BSE", "5minute", days_back=2)
+    except Exception: sx_df = pd.DataFrame()
+    
+    if nifty_df.empty:
+        raise HTTPException(status_code=500, detail="Primary Nifty data unavailable. Verify Breeze session.")
+        
+    # 2. Run Strategy Logic
+    result = morning_trade_panel(nifty_df, bn_df, sx_df)
+    
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+        
+    # 3. Strike Logic (Refine Strike for UI)
+    spot_price = nifty_df["close"].iloc[-1]
+    lot_size = get_dynamic_lot_size("NIFTY")
+    
+    if result["signal"] != "NO TRADE":
+        # Determine Strike: ATM or 1 ITM
+        # Nifty strike step is 50
+        strike_step = 50
+        atm_strike = round(spot_price / strike_step) * strike_step
+        
+        if result["confidence"] > 85:
+            # Strong breakout -> 1 ITM
+            if result["signal"] == "BUY CE":
+                chosen_strike = atm_strike - strike_step
+            else:
+                chosen_strike = atm_strike + strike_step
+        else:
+            chosen_strike = atm_strike
+            
+        result["trade"]["strike"] = f"NIFTY {int(chosen_strike)} {result['signal'].split()[-1]}"
+        
+        # 4. Telegram Alert Hook (only if signal is new/changed - would need state, but for now we just push)
+        # In a real app, we'd check against a state manager.
+        alert_msg = (f"🌅 **MORNING TRADE SIGNAL**\n"
+                     f"Signal: {result['signal']}\n"
+                     f"Confidence: {result['confidence']}%\n"
+                     f"Entry: {result['trade']['entry_type']}\n"
+                     f"Strike: {result['trade']['strike']}\n"
+                     f"SL: {result['trade']['sl']}\n"
+                     f"Reason: {result['reasons'][0] if result['reasons'] else 'N/A'}")
+        
+        # We only send if it's a valid buy/sell (avoid spamming NO TRADE)
+        # send_alert(alert_msg) 
+        # Note: Disabled by default to avoid spam during testing, but the hook is here.
+        
+    breeze.log_api_usage()
+    return clean_json_data(result)
+
+@app.post("/api/morning/analyze")
+async def morning_analyze(req: MorningRequest):
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(_executor, lambda: _run_morning(req))
     except HTTPException:
         raise
     except Exception as e:

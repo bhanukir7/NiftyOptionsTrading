@@ -125,44 +125,45 @@ class SafeBreeze(BaseBroker):
         res = self.breeze.get_portfolio_positions()
         self.rate_limiter.record_call()
         
-        # We use a dictionary to aggregate positions by their unique identifier
-        # Key format: (stock_code, expiry_date, strike_price, right)
+        # Aggregate positions by: (stock_code, expiry_date, strike_price, right)
         aggregated = {}
 
-        if res.get("Status") == 200 and res.get("Success"):
-            for pos in res["Success"]:
+        success_data = res.get("Success")
+        if res.get("Status") == 200 and isinstance(success_data, list):
+            for pos in success_data:
                 stock = pos.get("stock_code")
                 expiry = pos.get("expiry_date") or ""
                 strike = pos.get("strike_price") or ""
                 right = pos.get("right") or ""
-                exchange = pos.get("exchange_code")
+                exchange = pos.get("exchange_code") or "NSE"
                 
+                # Identify segment
+                product = pos.get("product_type", "").lower()
+                segment = "equity"
+                if expiry or strike or product in ["options", "futures"]:
+                    segment = "fno"
+
                 # Unique key for aggregation
                 key = (stock, expiry, strike, right)
                 
-                # Determine net quantity and side
-                # In Breeze F&O, 'action' is Buy/Sell and 'quantity' is the amount
+                # Determine net quantity
+                # Breeze can return 'quantity' or 'net_quantity' or 'position_quantity'
                 q = 0
+                raw_q = pos.get("net_quantity") or pos.get("quantity") or pos.get("position_quantity")
                 try:
-                    q = int(pos.get("quantity") or 0)
+                    q = int(raw_q) if raw_q is not None else 0
                 except:
-                    pass
+                    q = 0
                 
-                if pos.get("action", "").lower() == "sell":
+                # Handle signed vs unsigned quantity + action
+                # If quantity is unsigned, use 'action' to determine sign
+                if q > 0 and pos.get("action", "").lower() == "sell":
                     q = -q
-                
-                # If net_quantity is explicitly provided and non-zero, it usually overrides
-                net_q = pos.get("net_quantity")
-                if net_q is not None:
-                    try:
-                        q = int(net_q)
-                    except:
-                        pass
 
                 avg_price = float(pos.get("average_price") or 0)
                 ltp = float(pos.get("ltp") or 0)
-                pnl = pos.get("unrealized_profit_loss") or pos.get("pnl")
-                segment = pos.get("segment", "equity")
+                # pnl can be 'unrealized_profit_loss' or 'pnl' or 'ur_pnl'
+                pnl = pos.get("unrealized_profit_loss") or pos.get("pnl") or pos.get("ur_pnl")
                 
                 if key not in aggregated:
                     aggregated[key] = {
@@ -180,12 +181,12 @@ class SafeBreeze(BaseBroker):
                 
                 entry = aggregated[key]
                 entry["quantity"] += q
-                if q > 0: # Only average the Buy side for standard average price
+                if q > 0: # Long side contribution to average price
                     entry["total_cost"] += (avg_price * q)
+                elif q < 0 and entry["total_cost"] == 0: # Short entry
+                    entry["total_cost"] = (avg_price * abs(q))
                 
-                # Update LTP to latest seen for this key
                 entry["ltp"] = ltp
-                
                 if pnl is not None:
                     entry["pnl"] += float(pnl)
 
@@ -194,22 +195,24 @@ class SafeBreeze(BaseBroker):
             for entry in aggregated.values():
                 if entry["quantity"] != 0:
                     # Final average price calculation
-                    if entry["quantity"] > 0:
-                        entry["average_price"] = entry["total_cost"] / entry["quantity"]
+                    if abs(entry["quantity"]) > 0:
+                        entry["average_price"] = entry["total_cost"] / abs(entry["quantity"])
                     else:
-                        # For short positions, use the last seen average price or 0
-                        # (Breeze usually provides avg price for shorts too)
-                        entry["average_price"] = entry["total_cost"] / abs(entry["quantity"]) if entry["total_cost"] else 0
+                        entry["average_price"] = 0
                     
                     # If PnL wasn't provided or was 0, calculate it
                     if entry["pnl"] == 0:
                         entry["pnl"] = (entry["ltp"] - entry["average_price"]) * entry["quantity"]
                     
                     # Remove temporary keys
-                    del entry["total_cost"]
+                    if "total_cost" in entry: del entry["total_cost"]
                     normalized.append(entry)
-                    
+            
+            print(f"[POSITIONS] Found {len(normalized)} active positions.")
             return normalized
+        
+        if success_data and not isinstance(success_data, list):
+            print(f"[POSITIONS] Non-list success data from Breeze: {success_data}")
         return []
 
     def get_option_greeks(self, symbol: str, expiry: str, strike: str, right: str, exchange: str = "NFO") -> Dict:

@@ -66,32 +66,45 @@ def parse_input_string(contract_str: str) -> dict:
     }
 
 def fetch_multiday_data(breeze: SafeBreeze, stock_code: str, exchange_code: str, interval: str, days_back=90) -> pd.DataFrame:
-    # --- YFINANCE FALLBACK FOR BSE INDICES ---
-    if exchange_code.upper() == "BSE":
+    # --- YFINANCE FALLBACK LOGIC ---
+    # Common symbols for fallback
+    ticker_map = {
+        "BSESN": "^BSESN", "BSEX": "^BSEBANK", "SENSEX": "^BSESN", "BANKEX": "^BSEBANK",
+        "NIFTY": "^NSEI", "CNXBAN": "^NSEBANK", "BANKNIFTY": "^NSEBANK", "NIFTY50": "^NSEI"
+    }
+    
+    def try_yf_fallback(symbol, interval_str, days):
         try:
             import yfinance as yf
-            ticker_map = {"BSESN": "^BSESN", "BSEX": "^BSEBANK", "SENSEX": "^BSESN", "BANKEX": "^BSEBANK"}
-            ticker = ticker_map.get(stock_code.upper(), stock_code.upper())
-            print(f"[FALLBACK] Fetching {ticker} from yfinance (BSE not supported by Breeze Hist API)...")
+            ticker = ticker_map.get(symbol.upper(), symbol.upper())
+            print(f"[FALLBACK] Attempting to fetch {ticker} from yfinance...")
             
-            yf_interval = {"5minute": "5m", "1day": "1d", "1minute": "1m"}.get(interval, "1d")
-            # Use Ticker.history instead of download to avoid MultiIndex columns for single ticker
-            data = yf.Ticker(ticker).history(period=f"{days_back}d", interval=yf_interval)
+            yf_interval = {"5minute": "5m", "1day": "1d", "1minute": "1m"}.get(interval_str, "1d")
+            # Use Ticker.history for reliable data
+            data = yf.Ticker(ticker).history(period=f"{days}d", interval=yf_interval)
             if not data.empty:
                 df = data.reset_index()
                 df.columns = [str(c).lower() for c in df.columns]
                 # Map yf columns to breeze format
                 rename_map = {'date': 'datetime', 'open': 'open', 'high': 'high', 'low': 'low', 'close': 'close', 'volume': 'volume'}
                 df.rename(columns=rename_map, inplace=True)
+                # Ensure datetime is pd.to_datetime
+                if 'datetime' in df.columns:
+                    df['datetime'] = pd.to_datetime(df['datetime'])
                 print(f"[SUCCESS] Received {len(df)} candles from yfinance for {ticker}.")
                 return df
         except Exception as e:
-            print(f"[FALLBACK ERROR] yfinance failed: {e}")
+            print(f"[FALLBACK ERROR] yfinance failed for {symbol}: {e}")
+        return pd.DataFrame()
 
+    # If BSE, force yfinance immediately (Breeze doesn't support BSE Hist API well)
+    if exchange_code.upper() == "BSE":
+        return try_yf_fallback(stock_code, interval, days_back)
+
+    # For NSE, try Breeze first
     try:
         now_dt = datetime.now()
         iso_date = now_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z") 
-        # go back `days_back` days to ensure we get enough data for indicators to 'burn in'
         start_date_dt = now_dt - timedelta(days=days_back)
         start_date = f"{start_date_dt.strftime('%Y-%m-%d')}T00:00:00.000Z"
         
@@ -106,15 +119,19 @@ def fetch_multiday_data(breeze: SafeBreeze, stock_code: str, exchange_code: str,
         
         if response and response.get("Status") == 200 and "Success" in response and response['Success']:
             df = pd.DataFrame(response['Success'])
-            df["close"] = df["close"].astype(float)
-            df["open"] = df["open"].astype(float)
-            df["high"] = df["high"].astype(float)
-            df["low"] = df["low"].astype(float)
+            for col in ["open", "high", "low", "close"]:
+                if col in df.columns:
+                    df[col] = df[col].astype(float)
             df["datetime"] = pd.to_datetime(df["datetime"])
             df = df.reset_index(drop=True)
             return df
         else:
             print(f"[BREEZE SDK] Historical data error: {response}")
+            # If Breeze fails for known indices, try yfinance fallback
+            if stock_code.upper() in ticker_map:
+                print(f"[RECOVERY] Primary Breeze fetch failed. Switching to yfinance for {stock_code}...")
+                return try_yf_fallback(stock_code, interval, days_back)
+                
         return pd.DataFrame()
     except Exception as e:
         print(f"Exception during historical data fetch: {e}")

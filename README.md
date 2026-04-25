@@ -1,19 +1,23 @@
-**Release Version 1.1** — *April 12, 2026, 02:29 AM IST*
-**Release Version 1.2** — *April 12, 2026, 06:49 AM IST*
-**Release Version 1.3** — *April 12, 2026, 08:02 AM IST*
-**Release Version 1.4** — *April 13, 2026, 01:05 AM IST*
-**Release Version 1.5** — *April 13, 2026, 03:10 AM IST*
-**Release Version 1.6** — *April 14, 2026, 01:45 AM IST* (The Audit & FIFO Overhaul)
-**Release Version 1.7** — *April 21, 2026, 04:20 PM IST* (The Observability Hub)
-**Release Version 1.7.1** — *April 23, 2026, 02:45 AM IST* (High-Fidelity Signal Refinement)
-**Release Version 1.7.2** — *April 23, 2026, 09:55 AM IST* (Session Resilience & Intraday Fixes)
-**Release Version 1.8** — *April 24, 2026, 01:15 AM IST* (The Risk & Regime Overhaul)
-**Release Version 1.8.1** — *April 24, 2026, 01:25 AM IST* (Advanced Signal & Risk Upgrades)
-**Release Version 1.9** — *April 24, 2026, 01:40 AM IST* (The Hedge-Fund Decision Pipeline)
-**Release Version 1.10** — *April 24, 2026, 12:30 PM IST* (The Observability & Efficiency Overhaul)
-**Release Version 2.0** — *April 24, 2026, 05:45 PM IST* (The Multi-Broker & Automation Overhaul)
-**Release Version 3.2** — *April 25, 2026, 11:20 PM IST* (The High-Fidelity Greek Refinement)
-**Release Version 3.1** — *April 25, 2026, 02:40 PM IST* (The Portfolio Intelligence Overhaul)
+**Release Version 4.0** — *April 26, 2026, 04:45 AM IST* (Morning Trade & Resilience Overhaul)
+**Release Version 3.2** — *April 25, 2026, 11:20 PM IST*
+**Release Version 3.1** — *April 25, 2026, 02:40 PM IST*
+
+## 🌅 Version 4.0: The Morning Trade & Resilience Overhaul
+
+This major release focuses on high-conviction market-opening execution and system-wide resilience against broker API instability.
+
+### Key 4.0 Improvements:
+- **🌅 Morning Trade Panel**: A premium intraday command center implementing **Opening Range Breakout (ORB)** with automated multi-factor confluence (VWAP, EMA, RSI).
+- **🔄 Multi-Index Confirmation**: Integrated real-time verification across **NIFTY, BANK NIFTY, and SENSEX**. Directional signals are strictly filtered based on index alignment.
+- **📍 Nifty Spot (LTP) Integration**: Guaranteed visibility of the underlying spot price in the Morning Trade Panel by implementing an LTP fallback when VWAP is unavailable (common on weekends).
+- **📡 Data Source Transparency**: Added a live source indicator (`Breeze` vs `yfinance`) to the dashboard UI, providing full visibility into the origin of the technical data.
+- **🛡️ Hybrid Data Pipeline (yfinance Fallback)**: Implemented an intelligent failover mechanism. The engine now automatically switches to **yfinance** if the broker's historical API is unresponsive, ensuring 100% uptime for index analysis.
+- **💼 Advanced Position Tracking**: Refactored the portfolio engine in `SafeBreeze` to support multiple quantity schemas and accurately tag **F&O segments**, fixing visibility issues in the dashboard.
+- **📐 Fake Breakout Protection**: Added a second-layer price action filter that rejects "trap" signals if the price fails to sustain beyond the opening range boundaries.
+- **🧼 Defensive UI Rendering**: Hardened the entire dashboard with optional chaining and recursive null-sanitization, preventing crashes during weekend maintenance or data gaps.
+- **📍 BSE Index Support**: Expanded support for BSE indices with accurate exchange lookups and symbol mapping for SENSEX and BANKEX contracts.
+
+---
 
 ## 🎯 Version 3.2: The High-Fidelity Greek Refinement
 
@@ -387,6 +391,7 @@ python nifty_options_trading/evaluate_contract_V2.py "HINAER 28 Apr 4600 CE"
 A detailed index of exactly what every Python file does within the `nifty_options_trading/` package:
 
 ### The Evaluator Engines
+- `morning_strategy.py` : **Morning Trade Decision Engine**. Implements ORB logic with Multi-Index confirmation and fake-breakout filters.
 - `advanced_strategy.py` : **Observable Strategy Provider**. Manages symbol-level state machines (RANGE/TREND) and emits structured signals for the dashboard and alerts.
 - `trade_analyzer.py` : **Performance Audit Engine**. Parses broker-specific F&O Trade Books with date filtering and symbol-to-contract drill-down hierarchy.
 - `evaluate_global.py` : **Global Macro Confluence Evaluator**. Integrates local Indian setups with global US/Asian market sentiment.
