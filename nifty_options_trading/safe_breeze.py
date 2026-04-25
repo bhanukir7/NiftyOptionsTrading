@@ -212,6 +212,37 @@ class SafeBreeze(BaseBroker):
             return normalized
         return []
 
+    def get_option_greeks(self, symbol: str, expiry: str, strike: str, right: str, exchange: str = "NFO") -> Dict:
+        """Fetch live IV from Breeze."""
+        self.rate_limiter.wait_if_needed()
+        res = self.breeze.get_option_chain_quotes(
+            stock_code=symbol,
+            exchange_code=exchange,
+            expiry_date=expiry,
+            product_type="options",
+            right=right.lower(),
+            strike_price=strike
+        )
+        self.rate_limiter.record_call()
+        
+        iv = 0.15 # Default
+        print(f"[GREEKS] Fetching for {symbol} {expiry} {strike} {right}")
+        if res.get("Status") == 200 and res.get("Success"):
+            target_strike = float(strike)
+            for row in res["Success"]:
+                try:
+                    row_strike = float(row.get("strike_price", 0))
+                    if abs(row_strike - target_strike) < 0.1:
+                        iv_val = row.get("implied_volatility")
+                        print(f"  MATCH FOUND: Strike={row_strike}, IV={iv_val}")
+                        if iv_val and float(iv_val) > 0:
+                            iv = float(iv_val) / 100 
+                            break
+                except: continue
+        else:
+            print(f"  FETCH FAILED or NO DATA: {res.get('Error')}")
+        return {"iv": iv}
+
     def log_api_usage(self):
         """Prints current API usage metrics to the console."""
         print(f"[API STATS] Used this minute: {len(self.rate_limiter.call_timestamps)}/100 | Used today: {self.rate_limiter.daily_calls}/5000")

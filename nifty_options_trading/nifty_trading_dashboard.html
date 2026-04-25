@@ -1613,7 +1613,10 @@
               <div class="metric-label">Projected Total PnL</div>
               <div id="sim-total-pnl" class="metric-value">₹0</div>
             </div>
-            <button class="btn btn-sm" onclick="resetSimulator()" style="width:auto; margin:0">Reset ↺</button>
+            <div style="display:flex; flex-direction:column; gap:8px">
+              <button class="btn btn-sm" id="btn-fetch-greeks" onclick="fetchLiveGreeks()" style="width:auto; margin:0; background:var(--blue-gradient)">Fetch Live IV ⚡</button>
+              <button class="btn btn-sm" onclick="resetSimulator()" style="width:auto; margin:0">Reset ↺</button>
+            </div>
           </div>
         </div>
 
@@ -2723,22 +2726,23 @@
           if (ltpData.ltp > 0) {
             baseNiftySpot = ltpData.ltp;
           } else {
-            // Fallback to V3 spot if LTP fails
-            baseNiftySpot = parseFloat(g('v3-spot')?.textContent?.replace('₹', '').replace(',', '')) || 23800;
+            // Fallback to 23900 (nearest round) if LTP fails on weekend
+            baseNiftySpot = parseFloat(g('v3-spot')?.textContent?.replace('₹', '').replace(',', '')) || 23900;
           }
         } catch { 
-          baseNiftySpot = 23800; 
+          baseNiftySpot = 23900; 
         }
         
         g('sim-spot-ref').textContent = baseNiftySpot.toFixed(2);
-        if (g('sim-spot-proj').value === '') {
+        // On first load or if currently 23800, update to real spot
+        if (g('sim-spot-proj').value === '' || g('sim-spot-proj').value === '23800.00') {
           g('sim-spot-proj').value = baseNiftySpot.toFixed(2);
         }
         
         renderPositions(currentPositions);
         g('pos-last-refreshed').textContent = "Last updated: " + new Date().toLocaleTimeString('en-IN');
         hideErr('pos-error');
-        updateProjection(); // Initial sync
+        updateProjection();
       } catch (e) {
         showErr('pos-error', "Position Load Error: " + e.message);
       }
@@ -2789,6 +2793,23 @@
       } catch { return null; }
     }
 
+    async function fetchLiveGreeks() {
+      setLoading('btn-fetch-greeks', true);
+      try {
+        const d = await apiFetch('/api/positions/greeks');
+        if (d.positions) {
+          currentPositions = d.positions;
+          renderPositions(currentPositions); // Full re-render to update metadata
+          updateProjection();
+          alert("Live IV successfully synchronized for active positions.");
+        }
+      } catch (e) {
+        showErr('pos-error', "Greek Fetch Error: " + e.message);
+      } finally {
+        setLoading('btn-fetch-greeks', false);
+      }
+    }
+
     function updateProjection() {
       const projSpot = parseFloat(g('sim-spot-proj').value) || baseNiftySpot;
       const ivChange = parseFloat(g('sim-iv-change').value) / 100;
@@ -2825,12 +2846,11 @@
             const T_years = tDays / 365;
             const T_future = Math.max(0, tDays - daysHold) / 365;
             
-            // Initial IV estimation (fallback 15% if ltp is weird)
-            let IV = 0.15;
-            // Apply IV change
-            const IV_future = Math.max(0.01, IV + ivChange);
+            // Use live IV if fetched, else fallback to 15% baseline
+            let baseIV = p.iv || 0.15;
+            const IV_future = Math.max(0.01, baseIV + ivChange);
             
-            const pNow = BS.price(S, K, T_years, 0.07, IV, isCall);
+            const pNow = BS.price(S, K, T_years, 0.07, baseIV, isCall);
             const pFuture = BS.price(projSpot * ratio, K, T_future, 0.07, IV_future, isCall);
             
             // We use the relative change from current LTP for better accuracy
@@ -2848,7 +2868,10 @@
           const cell = rows[i].cells[5];
           let subText = `Proj. Δ: ${fmtINR(pnlChange)}`;
           if (daysHold > 0) subText += ` | ${daysHold}d`;
-          if (ivChange !== 0) subText += ` | IV ${ivChange > 0 ? '+' : ''}${ivChange*100}%`;
+          if (ivChange !== 0 || p.iv) {
+            const displayIV = (p.iv ? (p.iv * 100).toFixed(1) : '15') + '%';
+            subText += ` | IV ${displayIV}${ivChange !== 0 ? (ivChange > 0 ? '+' : '') + (ivChange*100).toFixed(0) + '%' : ''}`;
+          }
           
           cell.innerHTML = `${fmtINR(projPnL)} <br><small class="dim" style="font-size:9px">${subText}</small>`;
           cell.className = projPnL >= 0 ? 'pos mono' : 'neg mono';

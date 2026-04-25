@@ -1059,6 +1059,39 @@ async def get_trades_analysis(start_date: Optional[str] = None, end_date: Option
 MAX_DAILY_CALLS = 5000   # ICICI Breeze hard limit: 5000 calls/day
 MAX_PER_MIN     = 100    # ICICI Breeze hard limit: 100 calls/minute
 
+@app.get("/api/positions/greeks")
+async def api_positions_greeks():
+    broker = _get_breeze()
+    loop = asyncio.get_event_loop()
+    try:
+        # 1. Get current positions
+        res = await loop.run_in_executor(_executor, broker.get_positions)
+        
+        # 2. Enrich F&O positions with IV
+        enriched = []
+        for p in res:
+            if p.get("segment") == "fno" and p.get("strike"):
+                try:
+                    greeks = await loop.run_in_executor(
+                        _executor, 
+                        lambda: broker.get_option_greeks(
+                            p["symbol"], 
+                            p["expiry"],
+                            str(p["strike"]),
+                            p["right"],
+                            p.get("exchange", "NFO")
+                        )
+                    )
+                    p["iv"] = greeks.get("iv", 0.15)
+                except Exception as e:
+                    print(f"Greek fetch failed for {p['symbol']}: {e}")
+                    p["iv"] = 0.15
+            enriched.append(p)
+            
+        return JSONResponse({"positions": enriched})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 @app.get("/api/ltp")
 async def api_ltp(symbol: str = "NIFTY"):
     broker = _get_breeze()

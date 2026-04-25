@@ -12,7 +12,21 @@
 **Release Version 1.9** — *April 24, 2026, 01:40 AM IST* (The Hedge-Fund Decision Pipeline)
 **Release Version 1.10** — *April 24, 2026, 12:30 PM IST* (The Observability & Efficiency Overhaul)
 **Release Version 2.0** — *April 24, 2026, 05:45 PM IST* (The Multi-Broker & Automation Overhaul)
+**Release Version 3.2** — *April 25, 2026, 11:20 PM IST* (The High-Fidelity Greek Refinement)
 **Release Version 3.1** — *April 25, 2026, 02:40 PM IST* (The Portfolio Intelligence Overhaul)
+
+## 🎯 Version 3.2: The High-Fidelity Greek Refinement
+
+This release focuses on data precision and high-fidelity synchronization between the broker's real-time quotes and the simulator engine.
+
+### Key 3.2 Improvements:
+- **⚡ On-Demand Live IV Sync**: Implemented a dedicated "Fetch Live IV" capability that pulls exact volatility from NSE, replacing simulation baselines with real market data.
+- **🎯 Precision Strike Matching**: Hardened the matching logic to handle numeric precision (float vs string) in broker responses, ensuring 100% position synchronization for all OTM/ITM strikes.
+- **🔄 Real-Time UI Re-rendering**: Optimized the dashboard to instantly reflect Greek updates and multi-factor PnL changes without requiring manual page refreshes.
+- **📍 Smart Spot Calibration**: Automated the simulator's starting spot to the nearest 50-point strike and corrected weekend fallbacks for more accurate "What-If" baseline modeling.
+- **🚀 NSE/NFO Optimization**: Prioritized high-speed data fetching for NSE indices, reducing latency during live Greek enrichment calls.
+
+---
 
 ## 💼 Version 3.1: The Portfolio Intelligence & PnL Simulation Overhaul
 

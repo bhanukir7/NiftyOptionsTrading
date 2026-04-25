@@ -47,6 +47,11 @@ class BaseBroker(ABC):
         """Fetch current open positions from the broker."""
         pass
 
+    @abstractmethod
+    def get_option_greeks(self, symbol: str, expiry: str, strike: str, right: str, exchange: str = "NFO") -> Dict:
+        """Fetch live greeks (IV, Delta, etc.) for a specific option."""
+        pass
+
     # WebSocket Methods
     @abstractmethod
     def ws_connect(self):
