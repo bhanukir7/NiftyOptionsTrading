@@ -14,5 +14,6 @@ watchfiles>=0.21.0
 smartapi-python>=1.4.0
 pyotp>=2.9.0
 breeze-connect>=1.0.39
+kiteconnect>=5.0.0
 logzero>=1.7.0
 

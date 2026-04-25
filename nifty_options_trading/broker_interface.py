@@ -32,6 +32,16 @@ class BaseBroker(ABC):
         """Place a new order."""
         pass
 
+    @abstractmethod
+    def get_expiries(self, stock_code: str) -> List[str]:
+        """Fetch available expiry dates for a symbol."""
+        pass
+
+    @abstractmethod
+    def get_strikes(self, stock_code: str, expiry_date: str) -> List[float]:
+        """Fetch available strike prices for a symbol and expiry."""
+        pass
+
     # WebSocket Methods
     @abstractmethod
     def ws_connect(self):

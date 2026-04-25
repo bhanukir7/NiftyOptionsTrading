@@ -66,6 +66,7 @@ except ImportError:
 from nifty_options_trading.broker_interface import BaseBroker
 from nifty_options_trading.safe_breeze import SafeBreeze
 from nifty_options_trading.safe_smartapi import SafeSmartAPI
+from nifty_options_trading.safe_kite import SafeKite
 from nifty_options_trading.options_engine import (
     get_option_chain, get_dynamic_lot_size, get_expiries, get_strikes,
 )
@@ -141,22 +142,28 @@ async def startup_event():
                 return
             _broker_instance = SafeBreeze(api_key=API_KEY)
             _broker_instance.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
-        else: # ANGLE_ONE
+        elif BROKER_TYPE == "ANGLE_ONE":
             api_key = os.getenv("ANGLE_API_KEY")
             jwt = os.getenv("ANGLE_JWT_TOKEN")
-            refresh = os.getenv("ANGLE_REFRESH_TOKEN")
             if not api_key or not jwt:
                 print("  [!] Skip engine startup: ANGLE_API_KEY or ANGLE_JWT_TOKEN missing")
                 return
             _broker_instance = SafeSmartAPI(api_key=api_key)
             _broker_instance.smart.setAccessToken(jwt)
-            # Pre-populate token map (Step 8)
+        elif BROKER_TYPE == "ZERODHA":
+            api_key = os.getenv("ZERODHA_API_KEY")
+            access_token = os.getenv("ZERODHA_ACCESS_TOKEN")
+            if not api_key or not access_token:
+                print("  [!] Skip engine startup: ZERODHA_API_KEY or ZERODHA_ACCESS_TOKEN missing")
+                return
+            _broker_instance = SafeKite(api_key=api_key)
+            _broker_instance.kite.set_access_token(access_token)
         
         _engine = AutonomousEngine(_broker_instance, stock_codes=STOCK_CODES)
         # Pre-warm Security Master
         try:
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(_executor, lambda: get_expiries("NIFTY", "CE"))
+            await loop.run_in_executor(_executor, lambda: _broker_instance.get_expiries("NIFTY"))
             print(f"  [+] Trading Engine ({BROKER_TYPE}) and Security Master initialized.")
         except Exception as se:
             print(f"  [!] Security Master warning: {se}")
@@ -193,12 +200,18 @@ def _get_breeze() -> BaseBroker:
         if not API_KEY: raise HTTPException(status_code=400, detail="API_KEY missing")
         _broker_instance = SafeBreeze(api_key=API_KEY)
         _broker_instance.generate_session(api_secret=API_SECRET, session_token=SESSION_TOKEN)
-    else:
+    elif BROKER_TYPE == "ANGLE_ONE":
         api_key = os.getenv("ANGLE_API_KEY")
         jwt = os.getenv("ANGLE_JWT_TOKEN")
         if not api_key: raise HTTPException(status_code=400, detail="ANGLE_API_KEY missing")
         _broker_instance = SafeSmartAPI(api_key=api_key)
         _broker_instance.smart.setAccessToken(jwt)
+    elif BROKER_TYPE == "ZERODHA":
+        api_key = os.getenv("ZERODHA_API_KEY")
+        access_token = os.getenv("ZERODHA_ACCESS_TOKEN")
+        if not api_key: raise HTTPException(status_code=400, detail="ZERODHA_API_KEY missing")
+        _broker_instance = SafeKite(api_key=api_key)
+        _broker_instance.kite.set_access_token(access_token)
         
     return _broker_instance
 
@@ -209,9 +222,10 @@ def _get_breeze() -> BaseBroker:
 
 @app.get("/api/expiries")
 async def api_expiries(symbol: str = "NIFTY", option_type: str = "CE"):
+    broker = _get_breeze() # generic broker
     loop = asyncio.get_event_loop()
     dates = await loop.run_in_executor(
-        _executor, lambda: get_expiries(symbol.upper(), option_type.upper())
+        _executor, lambda: broker.get_expiries(symbol.upper())
     )
     return JSONResponse({"expiries": [str(d) for d in dates]})
 
@@ -220,13 +234,15 @@ async def api_expiries(symbol: str = "NIFTY", option_type: str = "CE"):
 async def api_strikes(symbol: str = "NIFTY", expiry: str = "", option_type: str = "CE"):
     if not expiry:
         return JSONResponse({"strikes": []})
+    broker = _get_breeze()
     try:
-        expiry_date = date.fromisoformat(expiry)
+        # Normalize expiry if needed
+        pass 
     except ValueError:
         return JSONResponse({"strikes": []})
     loop = asyncio.get_event_loop()
     strikes = await loop.run_in_executor(
-        _executor, lambda: get_strikes(symbol.upper(), expiry_date, option_type.upper())
+        _executor, lambda: broker.get_strikes(symbol.upper(), expiry)
     )
     return JSONResponse({"strikes": [float(s) for s in strikes]})
 

@@ -29,12 +29,11 @@ class SafeSmartAPI(BaseBroker):
         url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
         try:
             print("[SmartAPI] Downloading Instrument Master...")
-            res = requests.get(url, timeout=10)
+            res = requests.get(url, timeout=15)
             if res.status_code == 200:
                 data = res.json()
+                self.master_data = data # Store full list for complex filtering
                 for item in data:
-                    # Map symbol to token for easy lookup
-                    # Example: item['symbol'] = 'NIFTY25APR2422500CE', item['token'] = '12345'
                     symbol = item['symbol']
                     token = item['token']
                     self.token_map[symbol] = token
@@ -55,8 +54,6 @@ class SafeSmartAPI(BaseBroker):
 
     def get_historical_data(self, stock_code: str, interval: str, from_date: str, to_date: str, **kwargs):
         # Angle One interval mapping
-        # Breeze: '5minute', '1day'
-        # SmartAPI: 'FIVE_MINUTE', 'ONE_DAY'
         angle_interval = {
             "5minute": "FIVE_MINUTE",
             "1day": "ONE_DAY",
@@ -72,10 +69,9 @@ class SafeSmartAPI(BaseBroker):
             
         token = self._get_token(stock_code)
         if not token:
-            return {"Status": 404, "Error": "Symbol not found in master"}
+            return {"Status": 404, "Error": f"Symbol {stock_code} not found in master"}
             
         self.rate_limiter.wait_if_needed()
-        # SmartAPI params: exchange, symboltoken, interval, fromdate, todate
         res = self.smart.getCandleData({
             "exchange": kwargs.get("exchange", "NSE"),
             "symboltoken": token,
@@ -85,9 +81,6 @@ class SafeSmartAPI(BaseBroker):
         })
         self.rate_limiter.record_call()
         
-        # Translate SmartAPI format to Breeze-like format for the engine
-        # SmartAPI: {"status": True, "data": [[time, o, h, l, c, v], ...]}
-        # Breeze: {"Status": 200, "Success": [{"datetime":..., "open":...}, ...]}
         translated = {"Status": 200, "Success": []}
         if res.get('status') and res.get('data'):
             for candle in res['data']:
@@ -104,10 +97,87 @@ class SafeSmartAPI(BaseBroker):
         return translated
 
     def get_option_chain_quotes(self, stock_code: str, expiry_date: str, right: str, **kwargs):
-        # SmartAPI doesn't have a direct 'get_option_chain' like Breeze.
-        # We usually fetch all tokens for the underlying and filter.
-        # This is more complex and will be implemented in Step 5.
-        return {"Status": 501, "Error": "Option Chain for SmartAPI coming soon"}
+        """
+        Simulates an option chain by filtering the scrip master and fetching market data.
+        Breeze expiry_date: YYYY-MM-DD
+        Angle One expiry format: DDMMMYYYY (e.g., 25APR2024)
+        """
+        # Convert YYYY-MM-DD to DDMMMYYYY
+        try:
+            dt_obj = datetime.strptime(expiry_date.split('T')[0], "%Y-%m-%d")
+            angle_expiry = dt_obj.strftime("%d%b%Y").upper()
+        except Exception:
+            angle_expiry = expiry_date # Fallback
+
+        # Filter master for options
+        # stock_code might be 'NIFTY'
+        # item['name'] is 'NIFTY'
+        # item['instrumenttype'] is 'OPTIDX' or 'OPTSTK'
+        # item['expiry'] matches angle_expiry
+        
+        # We need to map 'Call'/'Put' to 'CE'/'PE' suffix in symbol or look at optiontype if available
+        opt_type = "CE" if right.lower() in ["call", "ce"] else "PE"
+        
+        filtered_tokens = []
+        token_to_strike = {}
+        
+        if not hasattr(self, 'master_data'):
+            return {"Status": 500, "Error": "Instrument master not loaded"}
+
+        for item in self.master_data:
+            if (item['name'] == stock_code.upper() and 
+                item['expiry'] == angle_expiry and 
+                item['symbol'].endswith(opt_type)):
+                
+                filtered_tokens.append(item['token'])
+                token_to_strike[item['token']] = float(item['strike']) / 100 if '.' not in item['strike'] else float(item['strike'])
+                # Angle One strike can be '2250000' for 22500.00 sometimes, but usually it has decimal.
+                # Standardizing:
+                strike_val = item['strike']
+                try:
+                    token_to_strike[item['token']] = float(strike_val)
+                except:
+                    pass
+
+        if not filtered_tokens:
+            return {"Status": 404, "Error": f"No options found for {stock_code} on {angle_expiry}"}
+
+        # Fetch market data for these tokens (limited to 50 per call in some APIs, but getMarketData supports more?)
+        # Let's chunk if necessary.
+        chunk_size = 50
+        all_results = []
+        
+        for i in range(0, len(filtered_tokens), chunk_size):
+            chunk = filtered_tokens[i : i + chunk_size]
+            payload = {
+                "mode": "LTP", # Or FULL for OI
+                "exchangeTokens": {
+                    kwargs.get("exchange_segment", "NFO"): chunk
+                }
+            }
+            self.rate_limiter.wait_if_needed()
+            res = self.smart.getMarketData(payload['mode'], payload['exchangeTokens'])
+            self.rate_limiter.record_call()
+            
+            if res.get('status') and res.get('data'):
+                # res['data']['fetched'] is a list of objects
+                all_results.extend(res['data']['fetched'])
+
+        # Translate to Breeze-like format
+        # Breeze needs: strike_price, last_traded_price, open_interest, right
+        translated = {"Status": 200, "Success": []}
+        for item in all_results:
+            token = item.get('symbolToken')
+            strike = token_to_strike.get(token, 0)
+            translated["Success"].append({
+                "strike_price": strike,
+                "last_traded_price": item.get('ltp', 0),
+                "open_interest": item.get('oi', 0),
+                "right": "Call" if opt_type == "CE" else "Put",
+                "symbol": self.token_to_symbol_map.get(token, "")
+            })
+            
+        return translated
 
     def get_ltp(self, stock_code: str, exchange: str = "NSE", product_type: str = "cash") -> float:
         token = self._get_token(stock_code)
@@ -136,7 +206,6 @@ class SafeSmartAPI(BaseBroker):
         self.sws = SmartWebSocketV2(jwt, self.smart.api_key, client_code, os.getenv("ANGLE_FEED_TOKEN", ""))
         
         def on_data(wsapp, msg):
-            # SmartAPI Tick → Unified format
             if self._on_ticks_callback:
                 token = msg.get('token')
                 symbol = self.token_to_symbol_map.get(token, token)
@@ -171,22 +240,60 @@ class SafeSmartAPI(BaseBroker):
         token = self._get_token(stock_code)
         if token:
             correlation_id = f"sub_{stock_code}"
-            action = 1 # 1 for Subscribe
             mode = 1   # 1 for LTP
-            exchange_type = 1 # 1 for NSE
-            tokens = [token]
-            self.sws.subscribe(correlation_id, mode, [{"exchangeType": exchange_type, "tokens": tokens}])
+            # Map exchange_code to exchangeType
+            # NSE=1, NFO=2, BSE=3, BFO=4
+            exch = kwargs.get("exchange_code", "NSE")
+            exch_type = 1
+            if exch == "NFO": exch_type = 2
+            elif exch == "BSE": exch_type = 3
+            elif exch == "BFO": exch_type = 4
+            
+            self.sws.subscribe(correlation_id, mode, [{"exchangeType": exch_type, "tokens": [token]}])
             print(f"[SmartAPI] Subscribed to {stock_code} ({token})")
 
     def unsubscribe_feeds(self, stock_code: str, **kwargs):
         token = self._get_token(stock_code)
         if token:
             correlation_id = f"unsub_{stock_code}"
-            action = 0 # 0 for Unsubscribe
             mode = 1
-            exchange_type = 1
-            tokens = [token]
-            self.sws.unsubscribe(correlation_id, mode, [{"exchangeType": exchange_type, "tokens": tokens}])
+            exch = kwargs.get("exchange_code", "NSE")
+            exch_type = 1
+            if exch == "NFO": exch_type = 2
+            self.sws.unsubscribe(correlation_id, mode, [{"exchangeType": exch_type, "tokens": [token]}])
+
+    def get_expiries(self, stock_code: str) -> List[str]:
+        if not hasattr(self, 'master_data'): return []
+        expiries = set()
+        for item in self.master_data:
+            if item['name'] == stock_code.upper() and item['instrumenttype'] in ['OPTIDX', 'OPTSTK']:
+                # Angle One expiry: DDMMMYYYY
+                try:
+                    dt = datetime.strptime(item['expiry'], "%d%b%Y")
+                    expiries.add(dt.strftime("%Y-%m-%d"))
+                except:
+                    expiries.add(item['expiry'])
+        return sorted(list(expiries))
+
+    def get_strikes(self, stock_code: str, expiry_date: str) -> List[float]:
+        if not hasattr(self, 'master_data'): return []
+        # expiry_date is YYYY-MM-DD
+        try:
+            dt_obj = datetime.strptime(expiry_date, "%Y-%m-%d")
+            angle_expiry = dt_obj.strftime("%d%b%Y").upper()
+        except:
+            angle_expiry = expiry_date
+
+        strikes = set()
+        for item in self.master_data:
+            if (item['name'] == stock_code.upper() and 
+                item['expiry'] == angle_expiry and 
+                item['instrumenttype'] in ['OPTIDX', 'OPTSTK']):
+                try:
+                    strikes.add(float(item['strike']))
+                except:
+                    pass
+        return sorted(list(strikes))
 
     @property
     def on_ticks(self):
@@ -197,5 +304,18 @@ class SafeSmartAPI(BaseBroker):
         self._on_ticks_callback = value
 
     def _get_token(self, symbol: str) -> Optional[str]:
-        # Logic to lookup token from master list
-        return self.token_map.get(symbol)
+        # Try direct match
+        s_upper = symbol.upper()
+        token = self.token_map.get(s_upper)
+        if token: return token
+        
+        # Try fuzzy match if it's an index
+        if s_upper == "NIFTY": 
+            return self.token_map.get("Nifty 50") or self.token_map.get("NIFTY50")
+        if s_upper == "CNXBAN" or s_upper == "BANKNIFTY": 
+            return self.token_map.get("Nifty Bank") or self.token_map.get("BANKNIFTY")
+        if s_upper == "FINNIFTY":
+            return self.token_map.get("Nifty Fin Services")
+        
+        return None
+

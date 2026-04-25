@@ -12,6 +12,21 @@
 **Release Version 1.9** — *April 24, 2026, 01:40 AM IST* (The Hedge-Fund Decision Pipeline)
 **Release Version 1.10** — *April 24, 2026, 12:30 PM IST* (The Observability & Efficiency Overhaul)
 **Release Version 2.0** — *April 24, 2026, 05:45 PM IST* (The Multi-Broker & Automation Overhaul)
+**Release Version 3.0** — *April 25, 2026, 12:45 PM IST* (The Zero-Cost & Full Broker Evolution)
+
+## 🚀 Version 3.0: The Zero-Cost & Full Broker Evolution
+
+This milestone version marks the completion of the multi-broker ecosystem, adding native support for Zerodha and perfecting the zero-cost API logic with Angle One.
+
+### Key 3.0 Improvements:
+- **🔌 Full Broker Trifecta**: Support for **ICICI Breeze**, **Angle One (SmartAPI)**, and **Zerodha (Kite Connect)**. Switch brokers instantly via `.env` without changing a single line of code.
+- **💸 Zerodha (Kite Connect) Native Support**: Integrated the industry-standard Kite API. Features high-precision OHLC data, seamless WebSocket streaming, and robust order execution.
+- **📐 Automated Zerodha Session Capture**: Implemented a local redirect listener for Zerodha. The system now automatically opens your browser for login, captures the `request_token`, and exchanges it for a 24-hour `access_token`.
+- **🤖 Perfected Zero-Cost Trading**: Native integration for **Angle One** now includes full option chain simulation and metadata lookups (expiries/strikes), enabling a completely free API environment for both indices and stocks.
+- **📊 Standardized Metadata Engine**: Unified the way metadata is fetched. Expiries and Strikes for all three brokers are now served through a consistent internal interface, ensuring the dashboard is always synchronized.
+- **📦 Full Dependency Overhaul**: Updated core requirements to include `kiteconnect`, `smartapi-python`, and `pyotp` with restored support for `logzero` high-fidelity logging.
+
+---
 
 ## 🔌 Version 2.0: The Multi-Broker & Automation Overhaul
 
@@ -279,11 +294,26 @@ In addition to single-contract evaluation, the suite contains active daemons and
    pip install -r requirements.txt
    ```
 3. **Environment Setup (`.env`):**
-   Create a `.env` file in the base `NiftyOptionsTrading` directory and provide your live ICICI API credentials.
+   Create a `.env` file in the base `NiftyOptionsTrading` directory.
    ```env
-   API_KEY="your_icici_api_key_here"
-   API_SECRET="your_icici_secret_here"
-   SESSION_TOKEN="daily_regenerated_breeze_token_here"
+   # Options: ICICI_BREEZE, ANGLE_ONE, ZERODHA
+   BROKER_TYPE="ICICI_BREEZE"
+   
+   # ICICI Credentials
+   API_KEY="your_key"
+   API_SECRET="your_secret"
+   SESSION_TOKEN="daily_token"
+   
+   # Angle One Credentials (Zero Cost API)
+   ANGLE_API_KEY="your_key"
+   ANGLE_CLIENT_CODE="your_id"
+   ANGLE_PASSWORD="your_pin"
+   ANGLE_TOTP_SECRET="your_totp_seed"
+   
+   # Zerodha Credentials
+   ZERODHA_API_KEY="your_key"
+   ZERODHA_API_SECRET="your_secret"
+   
    AVAILABLE_FUNDS="50000"
    ```
 4. **Telegram Alert Setup (Optional, for Live Notifications):**
@@ -354,6 +384,7 @@ A detailed index of exactly what every Python file does within the `nifty_option
 - `run.py` : **Universal Startup Launcher**. Handles environment bootstrapping, PYTHONPATH resolution, and optimized Uvicorn reload parameters for Windows.
 - `broker_interface.py` : **Unified Broker ABC**. Defines the standard interface for all supported brokerage platforms.
 - `safe_smartapi.py` : **Angle One Wrapper**. Implements the SmartAPI with automated scrip master mapping and TOTP authentication.
+- `safe_kite.py` : **Zerodha Wrapper**. Implements the Kite Connect API with automated session capture and normalized OHLC data.
 - `safe_breeze.py` : **ICICI Breeze Wrapper**. Refactored to implement the `BaseBroker` interface while maintaining legacy rate limiting.
 - `api_rate_limiter.py` : **Persistent Quota Queue**. Algorithmic rate restrictor mapping usage dynamically across runs (via `logs/api_usage.json`).
 - `cache_manager.py` : **TTL Memory Cache**. Eliminates redundant polling by statically saving data in local system RAM.

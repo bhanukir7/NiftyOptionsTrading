@@ -116,8 +116,6 @@ def check_session_health(api_key, api_secret, session_token, broker_type="ICICI_
         from SmartApi import SmartConnect
         try:
             smart = SmartConnect(api_key=api_key)
-            # SmartAPI uses jwtToken for subsequent requests.
-            # We check profile to verify session.
             smart.setAccessToken(session_token)
             res = smart.getProfile(kwargs.get("refresh_token", ""))
             if res.get("status"):
@@ -126,7 +124,63 @@ def check_session_health(api_key, api_secret, session_token, broker_type="ICICI_
                 return False, res.get("message", "Unknown Error")
         except Exception as e:
             return False, str(e)
+    elif broker_type == "ZERODHA":
+        from kiteconnect import KiteConnect
+        try:
+            kite = KiteConnect(api_key=api_key)
+            kite.set_access_token(session_token)
+            res = kite.profile()
+            if res.get("user_id"):
+                return True, "Valid"
+            else:
+                return False, "Invalid Profile"
+        except Exception as e:
+            return False, str(e)
     return False, "Unsupported Broker"
+
+def capture_kite_token(api_key, port=8080):
+    """Starts a local server and opens the Zerodha login URL."""
+    login_url = f"https://kite.zerodha.com/connect/login?v=3&api_key={api_key}"
+    
+    print(f"\n[SessionManager] Opening browser for Zerodha login...")
+    print(f"[SessionManager] URL: {login_url}")
+    webbrowser.open(login_url)
+    
+    server = HTTPServer(("127.0.0.1", port), RedirectHandlerKite)
+    server.token = None
+    
+    print(f"[SessionManager] Waiting for redirect on http://127.0.0.1:{port} ...")
+    
+    start_time = time.time()
+    server.timeout = 0.5
+    while not server.token:
+        server.handle_request()
+        if os.name == 'nt' and msvcrt.kbhit():
+            print("\n[SessionManager] Manual entry. Paste full redirect URL:")
+            manual_url = input("> ").strip()
+            if "request_token=" in manual_url:
+                query = urlparse(manual_url).query
+                params = parse_qs(query)
+                if "request_token" in params:
+                    server.token = params["request_token"][0]
+                    break
+        if time.time() - start_time > 300:
+            return None
+    return server.token
+
+class RedirectHandlerKite(BaseHTTPRequestHandler):
+    def do_GET(self):
+        query = urlparse(self.path).query
+        params = parse_qs(query)
+        if "request_token" in params:
+            self.server.token = params["request_token"][0]
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<html><body><h1>Success!</h1><p>Request Token captured. Close this tab.</p></body></html>")
+        else:
+            self.send_response(400)
+            self.end_headers()
 
 def login_smartapi(api_key, client_code, password, totp_secret):
     """Performs silent TOTP login for Angle One."""

@@ -105,6 +105,20 @@ class SafeBreeze(BaseBroker):
         self.rate_limiter.record_call()
         return res
 
+    def get_expiries(self, stock_code: str) -> List[str]:
+        from nifty_options_trading.options_engine import get_expiries
+        dates = get_expiries(stock_code)
+        return [d.isoformat() for d in dates]
+
+    def get_strikes(self, stock_code: str, expiry_date: str) -> List[float]:
+        from nifty_options_trading.options_engine import get_strikes
+        import datetime
+        try:
+            dt = datetime.date.fromisoformat(expiry_date)
+        except:
+            dt = expiry_date
+        return get_strikes(stock_code, dt)
+
     def log_api_usage(self):
         """Prints current API usage metrics to the console."""
         print(f"[API STATS] Used this minute: {len(self.rate_limiter.call_timestamps)}/100 | Used today: {self.rate_limiter.daily_calls}/5000")

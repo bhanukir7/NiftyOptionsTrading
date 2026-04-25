@@ -81,7 +81,12 @@ def validate_session_preflight():
     load_dotenv(find_dotenv(), override=True)
     
     broker_type = os.getenv("BROKER_TYPE", "ICICI_BREEZE")
-    api_key = os.getenv("API_KEY") if broker_type == "ICICI_BREEZE" else os.getenv("ANGLE_API_KEY")
+    if broker_type == "ICICI_BREEZE":
+        api_key = os.getenv("API_KEY")
+    elif broker_type == "ANGLE_ONE":
+        api_key = os.getenv("ANGLE_API_KEY")
+    else: # ZERODHA
+        api_key = os.getenv("ZERODHA_API_KEY")
     
     if not api_key:
         print(f"  [!] Error: API Key missing for {broker_type} in .env.")
@@ -93,12 +98,17 @@ def validate_session_preflight():
         if not session_token:
             return trigger_refresh(api_key, broker_type)
         is_valid, error = sm.check_session_health(api_key, api_secret, session_token, broker_type)
-    else: # ANGLE_ONE
+    elif broker_type == "ANGLE_ONE":
         session_token = os.getenv("ANGLE_JWT_TOKEN")
         refresh_token = os.getenv("ANGLE_REFRESH_TOKEN")
         if not session_token:
             return trigger_refresh(api_key, broker_type)
         is_valid, error = sm.check_session_health(api_key, None, session_token, broker_type, refresh_token=refresh_token)
+    else: # ZERODHA
+        session_token = os.getenv("ZERODHA_ACCESS_TOKEN")
+        if not session_token:
+            return trigger_refresh(api_key, broker_type)
+        is_valid, error = sm.check_session_health(api_key, None, session_token, broker_type)
     
     if is_valid:
         print(f"  [+] {broker_type} session is valid.")
@@ -129,7 +139,26 @@ def trigger_refresh(api_key, broker_type="ICICI_BREEZE"):
             sm.set_key(str(sm.ENV_PATH), "ANGLE_REFRESH_TOKEN", refresh)
             print("  [+] Successfully updated .env with Angle One tokens.")
             return True
-            
+    elif broker_type == "ZERODHA":
+        api_secret = os.getenv("ZERODHA_API_SECRET")
+        if not api_secret:
+            print("  [!] Error: ZERODHA_API_SECRET missing in .env.")
+            return False
+        
+        request_token = sm.capture_kite_token(api_key)
+        if request_token:
+            print(f"  [i] Exchanging request token for access token...")
+            from nifty_options_trading.safe_kite import SafeKite
+            try:
+                broker = SafeKite(api_key=api_key)
+                data = broker.generate_session(api_secret, request_token)
+                access_token = data["access_token"]
+                sm.set_key(str(sm.ENV_PATH), "ZERODHA_ACCESS_TOKEN", access_token)
+                print("  [+] Successfully updated .env with Zerodha access token.")
+                return True
+            except Exception as e:
+                print(f"  [!] Zerodha Token Exchange Failed: {e}")
+                
     return False
 
 def main():
