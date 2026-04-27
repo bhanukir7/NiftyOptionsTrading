@@ -86,6 +86,15 @@ from nifty_options_trading.evaluate_daytrading import (
 )
 from nifty_options_trading.strict_validator import validate_strict_signal
 from nifty_options_trading.morning_strategy import morning_trade_panel
+from nifty_options_trading.nse_greeks_fetcher import NSEGreeksFetcher
+from nifty_options_trading.strategy_builder import StrategyBuilder
+from nifty_options_trading.expiry_engine import ExpiryDayEngine
+from nifty_options_trading.scalp_engine import get_composite_scalp_view
+
+greeks_fetcher = NSEGreeksFetcher()
+strategy_builder = StrategyBuilder()
+expiry_engine = ExpiryDayEngine()
+
 
 # ── Read env once ─────────────────────────────────────────────────────────────
 API_KEY       = os.getenv("API_KEY", "")
@@ -1418,3 +1427,247 @@ async def strict_analyze(req: StrictRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return JSONResponse(result)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  GREEKS & STRATEGY LAB ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/greeks/live")
+async def api_greeks_live(symbol: str = "NIFTY"):
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(_executor, lambda: greeks_fetcher.fetch_option_chain(symbol))
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e), "source": "unavailable"})
+
+@app.get("/api/greeks/portfolio")
+async def api_greeks_portfolio():
+    broker = _get_breeze()
+    loop = asyncio.get_event_loop()
+    try:
+        positions = await loop.run_in_executor(_executor, broker.get_positions)
+        # Filter F&O positions
+        fno_positions = [p for p in positions if p.get("segment") == "fno" or (p.get("strike") and p.get("right"))]
+        
+        enriched_legs = []
+        net_delta, net_gamma, net_theta, net_vega = 0, 0, 0, 0
+        
+        # Group by symbol to fetch chain once per symbol
+        symbol_groups = {}
+        for p in fno_positions:
+            sym = p["symbol"]
+            if sym not in symbol_groups: symbol_groups[sym] = []
+            symbol_groups[sym].append(p)
+            
+        for sym, sym_positions in symbol_groups.items():
+            chain = await loop.run_in_executor(_executor, lambda: greeks_fetcher.fetch_option_chain(sym))
+            if "error" not in chain:
+                for p in sym_positions:
+                    try:
+                        strike_price = float(p.get("strike", 0))
+                        opt_type = p.get("right", "CE").upper()
+                        # Find closest strike
+                        strike_data = min(chain["strikes"], key=lambda x: abs(x["strikePrice"] - strike_price))
+                        leg_greeks = strike_data[opt_type]
+                        
+                        # In ICICI Breeze, quantity is usually positive for buy and negative for sell in some contexts, 
+                        # but check broker implementation. Usually quantity in positions is net.
+                        qty = float(p.get("quantity", 0))
+                        
+                        enriched_leg = {
+                            **p,
+                            "delta": leg_greeks["delta"],
+                            "gamma": leg_greeks["gamma"],
+                            "theta": leg_greeks["theta"],
+                            "vega": leg_greeks["vega"],
+                            "net_delta": round(leg_greeks["delta"] * qty, 4),
+                            "net_gamma": round(leg_greeks["gamma"] * qty, 6),
+                            "net_theta": round(leg_greeks["theta"] * qty, 4),
+                            "net_vega": round(leg_greeks["vega"] * qty, 4)
+                        }
+                        enriched_legs.append(enriched_leg)
+                        net_delta += enriched_leg["net_delta"]
+                        net_gamma += enriched_leg["net_gamma"]
+                        net_theta += enriched_leg["net_theta"]
+                        net_vega += enriched_leg["net_vega"]
+                    except:
+                        enriched_legs.append(p)
+            else:
+                enriched_legs.extend(sym_positions)
+
+        # Interpretations
+        bias = "NEUTRAL"
+        if net_delta > 50: bias = "BULLISH"
+        elif net_delta < -50: bias = "BEARISH"
+        
+        theta_risk = "LOW"
+        if net_theta < -1000: theta_risk = "HIGH"
+        elif net_theta < -500: theta_risk = "MEDIUM"
+        
+        vega_risk = "LOW"
+        if abs(net_vega) > 500: vega_risk = "HIGH"
+        elif abs(net_vega) > 200: vega_risk = "MEDIUM"
+
+        return JSONResponse({
+            "legs": enriched_legs,
+            "aggregates": {
+                "net_delta": round(net_delta, 4),
+                "net_gamma": round(net_gamma, 6),
+                "net_theta": round(net_theta, 4),
+                "net_vega": round(net_vega, 4),
+                "bias": bias,
+                "theta_risk": theta_risk,
+                "vega_risk": vega_risk
+            }
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e), "legs": []})
+
+class StrategyAnalyzeRequest(BaseModel):
+    strategy: str
+    symbol: str
+    expiry: str
+
+@app.post("/api/strategy/analyze")
+async def api_strategy_analyze(req: StrategyAnalyzeRequest):
+    loop = asyncio.get_event_loop()
+    try:
+        broker = _get_breeze()
+        exchange = _get_exchange(req.symbol)
+        spot = await loop.run_in_executor(_executor, lambda: broker.get_ltp(req.symbol.upper(), exchange=exchange))
+        
+        strat_method = getattr(strategy_builder, req.strategy.lower(), None)
+        if not strat_method:
+            return JSONResponse({"error": f"Strategy {req.strategy} not found"})
+        
+        result = await loop.run_in_executor(_executor, lambda: strat_method(spot, req.expiry, req.symbol))
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+
+class StrategyExecuteRequest(BaseModel):
+    strategy: str
+    symbol: str
+    expiry: str
+    legs: list
+
+@app.post("/api/strategy/execute")
+async def api_strategy_execute(req: StrategyExecuteRequest):
+    # Check paper trade mode
+    is_paper = os.getenv("PAPER_TRADE", "true").lower() == "true"
+    if _engine and hasattr(_engine, "config"):
+        is_paper = _engine.config.paper_trade
+
+    if is_paper:
+        import time
+        order_ids = [f"MOCK_{int(time.time())}_{i}" for i in range(len(req.legs))]
+        return JSONResponse({"status": "success", "message": f"PAPER TRADE EXECUTED: {req.strategy}", "order_ids": order_ids})
+    
+    # Real trade logic - simple sequential order placement
+    broker = _get_breeze()
+    order_ids = []
+    try:
+        for leg in req.legs:
+            # Note: Leg execution would require mapping fields to place_order kwargs
+            # This is a simplified version
+            res = broker.place_order(
+                stock_code=req.symbol,
+                exchange_code="NFO", # Generic NFO
+                action="buy" if leg["side"] == "BUY" else "sell",
+                order_type="market",
+                quantity=get_dynamic_lot_size(req.symbol), # Default 1 lot
+                price=0,
+                right="call" if leg["type"] == "CE" else "put",
+                strike_price=leg["strike"],
+                expiry_date=req.expiry
+            )
+            order_ids.append(res.get("Success", {}).get("order_id", "FAILED"))
+        
+        return JSONResponse({"status": "success", "message": "Strategy orders placed", "order_ids": order_ids})
+    except Exception as e:
+        return JSONResponse({"error": str(e), "status": "failed"})
+
+@app.get("/api/expiry/status")
+async def api_expiry_status(symbol: str = "NIFTY"):
+    loop = asyncio.get_event_loop()
+    try:
+        broker = _get_breeze()
+        exchange = _get_exchange(symbol)
+        spot = await loop.run_in_executor(_executor, lambda: broker.get_ltp(symbol.upper(), exchange=exchange))
+        
+        is_expiry = expiry_engine.is_expiry_today(symbol)
+        
+        # Calculate hours to expiry (assume 3:30 PM IST)
+        now = datetime.now()
+        expiry_time = now.replace(hour=15, minute=30, second=0)
+        hours_to_expiry = (expiry_time - now).total_seconds() / 3600
+        if hours_to_expiry < 0: hours_to_expiry = 0 # Market closed
+        
+        params = expiry_engine.get_expiry_parameters(symbol, spot, hours_to_expiry)
+        
+        chain = await loop.run_in_executor(_executor, lambda: greeks_fetcher.fetch_option_chain(symbol))
+        gamma_risk = expiry_engine.get_gamma_risk_strikes(symbol, spot, chain)
+        
+        # VIX fetch (placeholder - can fetch from global markets if needed)
+        vix = 15.0 # default
+        
+        recommendation = expiry_engine.get_expiry_recommendation(symbol, spot, vix, hours_to_expiry)
+        
+        return JSONResponse({
+            "is_expiry_today": is_expiry,
+            "hours_to_expiry": round(hours_to_expiry, 2),
+            "expiry_parameters": params,
+            "gamma_risk": gamma_risk,
+            "recommendation": recommendation,
+            "warning_banner": "⚠ EXPIRY DAY RISK ACTIVE: Tighten SL and reduce size." if is_expiry else None
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SCALP TRADE LAB ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ScalpRequest(BaseModel):
+    symbol: str = "NIFTY"
+    timeframe: int = 5
+    expiry: str = ""
+
+@app.post("/api/scalp/analyze")
+async def api_scalp_analyze(req: ScalpRequest):
+    loop = asyncio.get_event_loop()
+    try:
+        broker = _get_breeze()
+        exchange = _get_exchange(req.symbol)
+        
+        # 1. Fetch historical data (Need enough for ATR and indicators)
+        from nifty_options_trading.evaluate_contract_V3 import fetch_multiday_data
+        df = await loop.run_in_executor(
+            _executor, 
+            lambda: fetch_multiday_data(broker, req.symbol.upper(), exchange, f"{req.timeframe}minute", days_back=5)
+        )
+        
+        if df.empty:
+            return JSONResponse({"error": "Failed to fetch market data for scalping analysis."})
+            
+        # 2. Fetch option chain for OI walls
+        chain_df = pd.DataFrame()
+        if req.expiry:
+            chain_df = await loop.run_in_executor(
+                _executor,
+                lambda: get_option_chain(broker, req.symbol.upper(), req.expiry)
+            )
+            
+        # 3. Get composite view
+        result = get_composite_scalp_view(req.symbol.upper(), req.timeframe, df, chain_df)
+        
+        # 4. Add sentiment warning if exists (placeholder for actual sentiment check)
+        result["warnings"] = []
+        # If we had sentiment data, we would compare it here
+        # For now, we follow the requirement: "Do NOT use sentiment in verdict logic, only display as warning"
+        
+        return JSONResponse(clean_json_data(result))
+    except Exception as e:
+        return JSONResponse({"error": str(e)})

@@ -1,7 +1,25 @@
+**Release Version 5.0** — *April 28, 2026, 12:00 AM IST* (Institutional Strategy & Scalp Lab)
 **Release Version 4.1** — *April 27, 2026, 12:00 PM IST* (Scanning Engine Stabilization)
 **Release Version 4.0** — *April 26, 2026, 04:45 AM IST* (Morning Trade & Resilience Overhaul)
 **Release Version 3.2** — *April 25, 2026, 11:20 PM IST*
 **Release Version 3.1** — *April 25, 2026, 02:40 PM IST*
+
+## 🚀 Version 5.0: The Institutional Strategy & Scalp Lab
+
+This major release introduces institutional-grade decision tools and professional Greek analysis to the dashboard.
+
+### Key 5.0 Improvements:
+- **⚡ Scalp Trade Lab**: A real-time impulsive trade validator for high-speed (5m/10m) scalping. Converts market noise into binary **GO / BLOCK / WAIT** outcomes.
+- **🛡️ Hard Block Engine**: Implemented institutional entry filters. Automatically blocks trades near **OI Walls**, exhausted moves (>1.5 ATR), and low-expansion candles.
+- **📊 Mandatory Level Engine**: Integrated automated tracking of **Previous Day High/Low** and the **15-minute Opening Range (09:15-09:30)**.
+- **🟢 Institutional Green Conditions**: 100% signal alignment required: Breakout + Volume Spike + Momentum Score ≥ 70 + Candle Strength.
+- **⚡ Greeks & Strategy Lab**: A professional options terminal featuring live **Delta, Gamma, Theta, and Vega** tracking with NSE-direct fetching and Black-Scholes fallbacks.
+- **📈 Portfolio Greeks Aggregator**: Monitor your overall **Net Delta, Gamma, and Theta** across all active positions to manage directional bias and decay risk.
+- **🏗️ Strategy Builder Pro**: Analyze and execute complex templates (**Iron Condors, Spreads, Straddles**) with automated P&L projections and regime alignment.
+- **⚠️ Expiry Day Risk Panel**: Specialized monitoring for expiry days, providing **Gamma Risk alerts**, **Pin Zone detection**, and adjusted SL/Target recommendations.
+
+---
+
 
 ## 🚀 Version 4.1: The Scanning Engine Stabilization
 
@@ -406,6 +424,10 @@ python nifty_options_trading/evaluate_contract_V2.py "HINAER 28 Apr 4600 CE"
 A detailed index of exactly what every Python file does within the `nifty_options_trading/` package:
 
 ### The Evaluator Engines
+- `scalp_engine.py` : **Scalp Trade Lab Engine**. High-speed decision engine with hard blocks, opening range breakouts, and institutional green conditions.
+- `nse_greeks_fetcher.py` : **NSE Live Greeks Engine**. Fetches live option chains and calculates Greeks (Delta, Gamma, Theta, Vega) with BS fallback.
+- `strategy_builder.py` : **Advanced Strategy Builder**. Analyzes multi-leg templates and projects Max Profit/Loss and regime compatibility.
+- `expiry_engine.py` : **Expiry Day Risk Manager**. Monitors Gamma risk, pin zones, and provides adjusted recommendations for expiry day volatility.
 - `morning_strategy.py` : **Morning Trade Decision Engine**. Implements ORB logic with Multi-Index confirmation and fake-breakout filters.
 - `advanced_strategy.py` : **Observable Strategy Provider**. Manages symbol-level state machines (RANGE/TREND) and emits structured signals for the dashboard and alerts.
 - `trade_analyzer.py` : **Performance Audit Engine**. Parses broker-specific F&O Trade Books with date filtering and symbol-to-contract drill-down hierarchy.

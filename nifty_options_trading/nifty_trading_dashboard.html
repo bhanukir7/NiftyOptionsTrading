@@ -929,6 +929,9 @@
         <button class="tab-btn" id="tab-journal" onclick="switchTab('journal')" role="tab">📈 Trade Journal</button>
         <button class="tab-btn" id="tab-risk" onclick="switchTab('risk')" role="tab">⚙️ Risk Engine</button>
         <button class="tab-btn" id="tab-usage" onclick="switchTab('usage')" role="tab">🚦 API Status</button>
+        <button class="tab-btn" id="tab-lab" onclick="switchTab('lab')" role="tab">⚡ Greeks & Strategy Lab</button>
+        <button class="tab-btn" id="tab-scalp" onclick="switchTab('scalp')" role="tab">⚡ Scalp Trade Lab</button>
+
       </nav>
 
       <div style="margin-top:auto; padding-top:20px; border-top:1px solid var(--border2)">
@@ -1735,7 +1738,7 @@
               <div id="sim-total-pnl" class="metric-value">₹0</div>
             </div>
             <div style="display:flex; flex-direction:column; gap:8px">
-              <button class="btn btn-sm" id="btn-fetch-greeks" onclick="fetchLiveGreeks()" style="width:auto; margin:0; background:var(--blue-gradient)">Fetch Live IV ⚡</button>
+              <button class="btn btn-sm" id="btn-fetch-greeks" onclick="syncPositionsIV()" style="width:auto; margin:0; background:var(--blue-gradient)">Fetch Live IV ⚡</button>
               <button class="btn btn-sm" onclick="resetSimulator()" style="width:auto; margin:0">Reset ↺</button>
             </div>
           </div>
@@ -1780,7 +1783,256 @@
         </div>
       </div>
 
+      <div id="panel-lab" class="panel">
+        <!-- Card 1: Live Greeks Strip -->
+        <div class="card">
+          <div class="card-title" style="display:flex; justify-content:space-between; align-items:center">
+            <span>Live Greeks Strip</span>
+            <div style="display:flex; gap:8px; align-items:center">
+              <select id="lab-sym" onchange="fetchLiveGreeks()" style="width:130px; background:var(--bg3); border:1px solid var(--border); color:white; padding:4px 8px; border-radius:4px">
+                <option value="NIFTY">NIFTY</option>
+                <option value="BANKNIFTY">BANKNIFTY</option>
+                <option value="SENSEX">SENSEX</option>
+              </select>
+              <button class="btn btn-sm" id="btn-fetch-live" onclick="fetchLiveGreeks()" style="margin:0">Fetch Live Greeks ⚡</button>
+            </div>
+          </div>
+          <div style="overflow-x:auto; max-height:400px">
+            <table class="tbl" id="lab-greeks-tbl">
+              <thead>
+                <tr>
+                  <th>Strike</th>
+                  <th style="color:var(--green-txt)">CE IV</th><th style="color:var(--green-txt)">CE Δ</th><th style="color:var(--green-txt)">CE Γ</th><th style="color:var(--green-txt)">CE Θ</th><th style="color:var(--green-txt)">CE V</th>
+                  <th style="color:var(--red-txt)">PE IV</th><th style="color:var(--red-txt)">PE Δ</th><th style="color:var(--red-txt)">PE Γ</th><th style="color:var(--red-txt)">PE Θ</th><th style="color:var(--red-txt)">PE V</th>
+                </tr>
+              </thead>
+              <tbody id="lab-greeks-body">
+                <tr><td colspan="11" style="text-align:center; padding:30px; color:var(--text3)">Select symbol and fetch Greeks...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="lab-source-badge" style="margin-top:10px; text-align:right"></div>
+        </div>
+
+        <div class="grid g2" style="margin-top:12px; align-items:start">
+          <!-- Card 2: Portfolio Greeks -->
+          <div class="card">
+            <div class="card-title" style="display:flex; justify-content:space-between; align-items:center">
+              <span>Portfolio Greeks</span>
+              <button class="btn btn-sm" onclick="refreshPortfolioGreeks()" style="margin:0">Refresh ⟳</button>
+            </div>
+            <div class="grid g4" id="lab-port-metrics">
+              <div class="metric">
+                <div class="metric-label">Net Δ</div>
+                <div id="port-delta" class="metric-value">—</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Net Γ</div>
+                <div id="port-gamma" class="metric-value">—</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Net Θ/day</div>
+                <div id="port-theta" class="metric-value" style="color:var(--orange-txt)">—</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Net V</div>
+                <div id="port-vega" class="metric-value" style="color:var(--blue-txt)">—</div>
+              </div>
+            </div>
+            <div style="display:flex; gap:8px; margin-top:12px" id="lab-port-badges"></div>
+            <div style="overflow-x:auto; margin-top:12px; max-height:250px">
+              <table class="tbl" id="lab-port-tbl">
+                <thead>
+                  <tr>
+                    <th>Symbol</th>
+                    <th>Qty</th>
+                    <th>Delta</th>
+                    <th>Theta</th>
+                  </tr>
+                </thead>
+                <tbody id="lab-port-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Card 3: Strategy Builder -->
+          <div class="card">
+            <div class="card-title">Strategy Builder</div>
+            <div class="grid g2" style="margin-bottom:12px">
+              <div>
+                <label>Strategy Template</label>
+                <select id="strat-type" style="background:var(--bg3); border:1px solid var(--border); color:white; padding:6px; border-radius:4px; width:100%">
+                  <option value="BULL_CALL_SPREAD">Bull Call Spread</option>
+                  <option value="BEAR_PUT_SPREAD">Bear Put Spread</option>
+                  <option value="LONG_STRADDLE">Long Straddle</option>
+                  <option value="SHORT_STRADDLE">Short Straddle</option>
+                  <option value="IRON_CONDOR">Iron Condor</option>
+                  <option value="LONG_STRANGLE">Long Strangle</option>
+                </select>
+              </div>
+              <div>
+                <label>Target Expiry</label>
+                <select id="strat-expiry-sel" style="background:var(--bg3); border:1px solid var(--border); color:white; padding:6px; border-radius:4px; width:100%">
+                  <option value="">⏳ loading…</option>
+                </select>
+              </div>
+            </div>
+            <button class="btn" id="btn-analyze-strat" onclick="analyzeStrategy()">Analyze Strategy Projections ↗</button>
+            
+            <div id="strat-result" style="display:none; margin-top:14px">
+              <div class="grid g3" style="margin-bottom:12px">
+                <div class="metric">
+                  <div class="metric-label">Max Profit</div>
+                  <div id="strat-max-p" class="metric-value pos">—</div>
+                </div>
+                <div class="metric">
+                  <div class="metric-label">Max Loss</div>
+                  <div id="strat-max-l" class="metric-value neg">—</div>
+                </div>
+                <div class="metric">
+                  <div class="metric-label">Net Premium</div>
+                  <div id="strat-net-p" class="metric-value">—</div>
+                </div>
+              </div>
+              <div style="overflow-x:auto; margin-bottom:12px">
+                <table class="tbl">
+                  <thead>
+                    <tr><th>Strike</th><th>Type</th><th>Side</th><th>Premium</th><th>Δ</th></tr>
+                  </thead>
+                  <tbody id="strat-legs"></tbody>
+                </table>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center">
+                <span id="strat-regime" class="badge badge-hold"></span>
+                <button class="btn btn-sm" id="btn-execute-strat" onclick="executeStrategy()" style="margin:0; background:linear-gradient(135deg, var(--purple), var(--blue))">Execute Strategy 🚀</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 4: Expiry Day Panel -->
+        <div class="card" id="expiry-panel" style="margin-top:12px">
+          <div class="card-title">Expiry Day Risk Panel</div>
+          <div id="expiry-banner-container"></div>
+          
+          <div class="grid g4" id="expiry-metrics" style="margin-top:10px">
+            <div class="metric">
+              <div class="metric-label">Adj. Stop Loss</div>
+              <div id="exp-sl" class="metric-value">—</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Adj. Target</div>
+              <div id="exp-tgt" class="metric-value">—</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Max Size</div>
+              <div id="exp-lots" class="metric-value">—</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Expiry Time</div>
+              <div id="exp-hours" class="metric-value neu">—</div>
+            </div>
+          </div>
+          
+          <div class="grid g2" style="margin-top:12px; align-items:stretch">
+            <div class="metric" style="background:rgba(255,255,255,0.03); border-color:var(--border2)">
+              <div class="metric-label">Gamma Risk Status</div>
+              <div id="exp-gamma" style="font-size:13px; font-weight:600; margin-top:4px">—</div>
+              <div id="exp-pinzone" style="font-size:10px; color:var(--text3); margin-top:2px"></div>
+            </div>
+            <div class="metric" style="background:rgba(99, 102, 241, 0.05); border-color:rgba(99, 102, 241, 0.2)">
+              <div class="metric-label" style="color:var(--blue-txt)">Alpha Recommendation</div>
+              <div id="exp-rec" style="font-size:13px; font-weight:700; margin-top:4px">—</div>
+              <div id="exp-rationale" style="font-size:11px; color:var(--text2); margin-top:4px"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="panel-scalp" class="panel">
+        <div id="scalp-verdict-tile" class="card" style="padding: 30px; text-align: center; border-width: 2px; transition: all 0.3s ease-in-out; background: var(--bg2)">
+          <div style="font-size: 14px; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px">Instant Verdict</div>
+          <div id="scalp-verdict-text" style="font-size: 48px; font-weight: 800; margin-bottom: 12px">WAITING</div>
+          <div id="scalp-verdict-reason" style="font-size: 16px; color: var(--text2); margin-bottom: 20px">Initializing decision engine...</div>
+          <div class="grid g2" style="max-width: 500px; margin: 0 auto">
+             <div class="metric" style="background: rgba(255,255,255,0.05)">
+                <div class="metric-label">Target Points</div>
+                <div id="scalp-target" class="metric-value pos">—</div>
+             </div>
+             <div class="metric" style="background: rgba(255,255,255,0.05)">
+                <div class="metric-label">Stop Loss</div>
+                <div id="scalp-sl" class="metric-value neg">—</div>
+             </div>
+          </div>
+        </div>
+
+        <div class="grid g2" style="margin-top: 12px; align-items: start">
+          <div class="card">
+            <div class="card-title">Live Validation Flags</div>
+            <div id="scalp-flags" class="grid g3">
+               <div class="metric" id="flag-momentum">
+                 <div class="metric-label">Momentum</div>
+                 <div class="metric-value" style="font-size: 14px">—</div>
+               </div>
+               <div class="metric" id="flag-vwap">
+                 <div class="metric-label">VWAP Bias</div>
+                 <div class="metric-value" style="font-size: 14px">—</div>
+               </div>
+               <div class="metric" id="flag-volume">
+                 <div class="metric-label">Vol Spike</div>
+                 <div class="metric-value" style="font-size: 14px">—</div>
+               </div>
+               <div class="metric" id="flag-candle">
+                 <div class="metric-label">Expansion</div>
+                 <div class="metric-value" style="font-size: 14px">—</div>
+               </div>
+               <div class="metric" id="flag-oi">
+                 <div class="metric-label">OI Clear</div>
+                 <div class="metric-value" style="font-size: 14px">—</div>
+               </div>
+               <div class="metric" id="flag-late">
+                 <div class="metric-label">Late Move</div>
+                 <div class="metric-value" style="font-size: 14px">—</div>
+               </div>
+            </div>
+            <div id="scalp-warnings" style="margin-top: 15px"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-title" style="display:flex; justify-content:space-between; align-items:center">
+              <span>Parameters & Support/Resist</span>
+              <div style="display:flex; gap:8px">
+                 <select id="scalp-sym" onchange="runScalpAnalysis()" style="background:var(--bg3); color:white; border:1px solid var(--border); padding:4px; border-radius:4px">
+                    <option value="NIFTY">NIFTY</option>
+                    <option value="BANKNIFTY">BANKNIFTY</option>
+                 </select>
+                 <select id="scalp-tf" onchange="runScalpAnalysis()" style="background:var(--bg3); color:white; border:1px solid var(--border); padding:4px; border-radius:4px">
+                    <option value="5">5 Min</option>
+                    <option value="10">10 Min</option>
+                 </select>
+              </div>
+            </div>
+            <div class="grid g2">
+               <div class="metric">
+                  <div class="metric-label">PDH / PDL</div>
+                  <div id="scalp-pdlh" style="font-size: 13px; margin-top:4px">—</div>
+               </div>
+               <div class="metric">
+                  <div class="metric-label">Opening Range</div>
+                  <div id="scalp-orb" style="font-size: 13px; margin-top:4px">—</div>
+               </div>
+            </div>
+            <div style="margin-top: 15px; padding: 15px; background: rgba(99, 102, 241, 0.05); border-radius: 8px; border: 1px solid rgba(99, 102, 241, 0.2)">
+               <div style="font-size: 11px; color: var(--blue-txt); text-transform: uppercase; margin-bottom: 5px">Suggested Strike</div>
+               <div id="scalp-suggested-strike" style="font-size: 20px; font-weight: 700; color: white">N/A</div>
+               <div id="scalp-suggested-action" style="font-size: 11px; color: var(--text3); margin-top: 2px">Waiting for high-probability entry...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="panel-journal" class="panel">
+
         <div class="card" style="margin-bottom:12px">
           <div class="card-title"
             style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px">
@@ -1934,7 +2186,8 @@
     }
 
     // ── Tab switching ─────────────────────────────────────────────────────────────
-    const TABS = ['v3', 'morning', 'btst', 'daytrading', 'global', 'monitor', 'engine', 'advanced', 'positions', 'journal', 'risk', 'usage'];
+    const TABS = ['v3', 'morning', 'btst', 'daytrading', 'global', 'monitor', 'engine', 'advanced', 'positions', 'journal', 'risk', 'usage', 'lab', 'scalp'];
+
     function switchTab(id) {
       TABS.forEach(t => {
         const p = g('panel-' + t);
@@ -1949,7 +2202,10 @@
       if (id === 'advanced') { refreshAdvancedSignals(); refreshAdvancedSnapshots(); }
       if (id === 'journal') loadJournal();
       if (id === 'positions') fetchPositions();
+      if (id === 'lab') { fetchLiveGreeks(); refreshPortfolioGreeks(); fetchExpiryStatus(); loadExpiries(sv('lab-sym'), 'CE', 'strat-expiry-sel'); }
+      if (id === 'scalp') { runScalpAnalysis(); }
     }
+
 
     // ── Clock ─────────────────────────────────────────────────────────────────────
     function updateClock() {
@@ -2941,27 +3197,19 @@
         const d = await apiFetch('/api/positions');
         currentPositions = d.positions || [];
         
-        // Fetch LIVE Nifty Spot for the simulator base
         try {
           const ltpData = await apiFetch('/api/ltp?symbol=NIFTY');
-          if (ltpData.ltp > 0) {
-            baseNiftySpot = ltpData.ltp;
-          } else {
-            // Try to pull from V3 metric if already analyzed
+          if (ltpData.ltp > 0) baseNiftySpot = ltpData.ltp;
+          else {
             const v3SpotText = g('v3-spot')?.textContent?.replace('₹', '').replace(',', '');
             baseNiftySpot = parseFloat(v3SpotText) || 0;
           }
-        } catch { 
-          baseNiftySpot = 0; 
-        }
+        } catch { baseNiftySpot = 0; }
         
         g('sim-spot-ref').textContent = baseNiftySpot > 0 ? baseNiftySpot.toFixed(2) : "Fetching...";
-        // On first load or if currently uninitialized, update to real spot
         const currentProj = g('sim-spot-proj').value;
-        if (currentProj === '' || currentProj === '0' || currentProj === '23800.00' || currentProj === '23900.00') {
-          if (baseNiftySpot > 0) {
-            g('sim-spot-proj').value = baseNiftySpot.toFixed(2);
-          }
+        if (currentProj === '' || currentProj === '0') {
+          if (baseNiftySpot > 0) g('sim-spot-proj').value = baseNiftySpot.toFixed(2);
         }
         
         renderPositions(currentPositions);
@@ -2989,7 +3237,6 @@
       }
     }
 
-    // ── Black-Scholes Math ──────────────────────────────────────────────────
     const BS = {
       ncdf: function(x) {
         const t = 1 / (1 + 0.2316419 * Math.abs(x));
@@ -3018,13 +3265,13 @@
       } catch { return null; }
     }
 
-    async function fetchLiveGreeks() {
+    async function syncPositionsIV() {
       setLoading('btn-fetch-greeks', true);
       try {
         const d = await apiFetch('/api/positions/greeks');
         if (d.positions) {
           currentPositions = d.positions;
-          renderPositions(currentPositions); // Full re-render to update metadata
+          renderPositions(currentPositions);
           updateProjection();
           alert("Live IV successfully synchronized for active positions.");
         }
@@ -3039,7 +3286,7 @@
       const projSpot = parseFloat(g('sim-spot-proj').value) || baseNiftySpot;
       const ivChange = parseFloat(g('sim-iv-change').value) / 100;
       const daysHold = parseFloat(g('sim-days-hold').value);
-      const pct = ((projSpot / baseNiftySpot) - 1) * 100;
+      const pct = baseNiftySpot > 0 ? ((projSpot / baseNiftySpot) - 1) * 100 : 0;
       
       g('sim-pct-text').textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
       
@@ -3054,55 +3301,35 @@
       
       filtered.forEach((p, i) => {
         let pnlChange = 0;
-        
         if (p.segment === 'fno') {
           const isSensex = (p.symbol || '').includes('BSESEN') || (p.exchange === 'BFO');
           const ratio = isSensex ? 3.33 : 1.0;
           const S = baseNiftySpot * ratio;
           const K = parseFloat(p.strike);
-          const isCall = (p.right || '').toUpperCase().includes('C') || (p.right || '').toUpperCase().includes('CALL');
-          
+          const isCall = (p.right || '').toUpperCase().includes('C');
           if (!isNaN(K)) {
-            // Estimate Time to Expiry
             const expDate = parseExpiry(p.expiry);
             let tDays = expDate ? (expDate - new Date()) / (1000*60*60*24) : 7;
-            tDays = Math.max(0.5, tDays); // Min half day
-            
+            tDays = Math.max(0.5, tDays);
             const T_years = tDays / 365;
             const T_future = Math.max(0, tDays - daysHold) / 365;
-            
-            // Use live IV if fetched, else fallback to 15% baseline
             let baseIV = p.iv || 0.15;
             const IV_future = Math.max(0.01, baseIV + ivChange);
-            
             const pNow = BS.price(S, K, T_years, 0.07, baseIV, isCall);
             const pFuture = BS.price(projSpot * ratio, K, T_future, 0.07, IV_future, isCall);
-            
-            // We use the relative change from current LTP for better accuracy
-            const priceDelta = pFuture - pNow;
-            pnlChange = priceDelta * p.quantity;
+            pnlChange = (pFuture - pNow) * p.quantity;
           }
         } else {
           pnlChange = (pct / 100) * (p.ltp * p.quantity);
         }
-        
         const projPnL = (p.pnl || 0) + pnlChange;
         totalProjPnL += projPnL;
-        
         if (rows[i] && rows[i].cells[5]) {
           const cell = rows[i].cells[5];
-          let subText = `Proj. Δ: ${fmtINR(pnlChange)}`;
-          if (daysHold > 0) subText += ` | ${daysHold}d`;
-          if (ivChange !== 0 || p.iv) {
-            const displayIV = (p.iv ? (p.iv * 100).toFixed(1) : '15') + '%';
-            subText += ` | IV ${displayIV}${ivChange !== 0 ? (ivChange > 0 ? '+' : '') + (ivChange*100).toFixed(0) + '%' : ''}`;
-          }
-          
-          cell.innerHTML = `${fmtINR(projPnL)} <br><small class="dim" style="font-size:9px">${subText}</small>`;
+          cell.innerHTML = `${fmtINR(projPnL)} <br><small class="dim" style="font-size:9px">Proj. Δ: ${fmtINR(pnlChange)}</small>`;
           cell.className = projPnL >= 0 ? 'pos mono' : 'neg mono';
         }
       });
-      
       const totElem = g('sim-total-pnl');
       totElem.textContent = fmtINR(totalProjPnL);
       totElem.className = totalProjPnL >= 0 ? 'metric-value pos' : 'metric-value neg';
@@ -3118,36 +3345,214 @@
 
     function renderPositions(posList) {
       const tbody = g('pos-body');
-      const empty = g('pos-empty');
       const filter = g('pos-segment-filter').value;
-      
       let filtered = posList;
-      if (filter !== 'all') {
-        filtered = posList.filter(p => (p.segment || 'equity').toLowerCase() === filter);
-      }
-
+      if (filter !== 'all') filtered = posList.filter(p => (p.segment || 'equity').toLowerCase() === filter);
       if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text3)">No positions found for this filter.</td></tr>';
-        empty.style.display = posList.length === 0 ? 'block' : 'none';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text3)">No positions found.</td></tr>';
         return;
       }
-      
-      empty.style.display = 'none';
       tbody.innerHTML = filtered.map(p => {
         const pnlCls = p.pnl >= 0 ? 'pos' : 'neg';
-        return `
-          <tr>
-            <td class="mono" style="font-weight:700">${p.symbol}</td>
-            <td class="dim" style="font-size:10px">${p.expiry || '—'} / ${p.strike || '—'} ${p.right || ''}</td>
-            <td class="mono" style="font-weight:600">${p.quantity}</td>
-            <td class="dim mono">${fmtNum(p.average_price)}</td>
-            <td class="mono">${fmtNum(p.ltp)}</td>
-            <td class="${pnlCls} mono" style="font-weight:700">${fmtINR(p.pnl)}</td>
-            <td><span class="badge badge-flat">${p.exchange}</span></td>
-          </tr>
-        `;
+        return `<tr><td class="mono" style="font-weight:700">${p.symbol}</td><td class="dim" style="font-size:10px">${p.expiry || '—'} / ${p.strike || '—'} ${p.right || ''}</td><td class="mono">${p.quantity}</td><td class="dim mono">${fmtNum(p.average_price)}</td><td class="mono">${fmtNum(p.ltp)}</td><td class="${pnlCls} mono" style="font-weight:700">${fmtINR(p.pnl)}</td><td><span class="badge badge-flat">${p.exchange}</span></td></tr>`;
       }).join('');
     }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    //  TAB — GREEKS & STRATEGY LAB
+    // ══════════════════════════════════════════════════════════════════════════════
+    async function fetchLiveGreeks() {
+      const sym = sv('lab-sym');
+      setLoading('btn-fetch-live', true);
+      try {
+        const d = await apiFetch(`/api/greeks/live?symbol=${sym}`);
+        if (d.error) throw new Error(d.error);
+        renderGreeks(d);
+      } catch (e) { console.error(e); }
+      finally { setLoading('btn-fetch-live', false); }
+    }
+
+    function renderGreeks(d) {
+      const body = g('lab-greeks-body');
+      body.innerHTML = '';
+      if (!d.strikes) return;
+      const spot = d.spot;
+      d.strikes.forEach(s => {
+        const isATM = Math.abs(s.strikePrice - spot) <= 25;
+        const rowCls = isATM ? 'style="background:rgba(99,102,241,0.1)"' : '';
+        body.innerHTML += `<tr ${rowCls}>
+          <td class="mono" style="font-weight:700">₹${s.strikePrice}</td>
+          <td class="dim">${fmtNum(s.CE.impliedVolatility, 1)}</td><td class="pos">${fmtNum(s.CE.delta, 2)}</td><td class="neu">${fmtNum(s.CE.gamma, 5)}</td><td class="neg">${fmtNum(s.CE.theta, 2)}</td><td class="dim">${fmtNum(s.CE.vega, 2)}</td>
+          <td class="dim">${fmtNum(s.PE.impliedVolatility, 1)}</td><td class="neg">${fmtNum(s.PE.delta, 2)}</td><td class="neu">${fmtNum(s.PE.gamma, 5)}</td><td class="neg">${fmtNum(s.PE.theta, 2)}</td><td class="dim">${fmtNum(s.PE.vega, 2)}</td>
+        </tr>`;
+      });
+      g('lab-source-badge').innerHTML = `<span class="badge ${d.source === 'NSE' ? 'badge-buy' : 'badge-wait'}">Source: ${d.source}</span>`;
+    }
+
+    async function refreshPortfolioGreeks() {
+      try {
+        const d = await apiFetch('/api/greeks/portfolio');
+        const agg = d.aggregates || {};
+        g('port-delta').textContent = fmtNum(agg.net_delta, 2);
+        g('port-delta').className = 'metric-value ' + (agg.net_delta > 0 ? 'pos' : 'neg');
+        g('port-gamma').textContent = fmtNum(agg.net_gamma, 5);
+        g('port-theta').textContent = fmtNum(agg.net_theta, 2);
+        g('port-vega').textContent = fmtNum(agg.net_vega, 2);
+        g('lab-port-badges').innerHTML = `
+          <span class="badge ${agg.bias === 'BULLISH' ? 'badge-buy' : (agg.bias === 'BEARISH' ? 'badge-sell' : 'badge-hold')}">${agg.bias} BIAS</span>
+          <span class="badge ${agg.theta_risk === 'HIGH' ? 'badge-sell' : 'badge-buy'}">THETA RISK: ${agg.theta_risk}</span>
+        `;
+        const body = g('lab-port-body');
+        body.innerHTML = (d.legs || []).map(l => `<tr><td class="mono">${l.symbol} ${l.strike || ''}</td><td class="mono">${l.quantity}</td><td class="${l.net_delta > 0 ? 'pos' : 'neg'} mono">${fmtNum(l.net_delta, 1)}</td><td class="neg mono">${fmtNum(l.net_theta, 1)}</td></tr>`).join('');
+      } catch (e) { console.error(e); }
+    }
+
+    async function analyzeStrategy() {
+      const strat = sv('strat-type'), expiry = sv('strat-expiry-sel');
+      if (!expiry) return alert('Select expiry');
+      setLoading('btn-analyze-strat', true);
+      try {
+        const d = await apiFetch('/api/strategy/analyze', 'POST', { strategy: strat, symbol: sv('lab-sym'), expiry: expiry });
+        g('strat-result').style.display = 'block';
+        g('strat-max-p').textContent = typeof d.max_profit === 'number' ? fmtINR(d.max_profit) : d.max_profit;
+        g('strat-max-l').textContent = typeof d.max_loss === 'number' ? fmtINR(d.max_loss) : d.max_loss;
+        g('strat-net-p').textContent = fmtINR(d.net_premium);
+        g('strat-regime').textContent = d.ideal_regime;
+        g('strat-legs').innerHTML = d.legs.map(l => `<tr><td class="mono">${l.strike}</td><td>${l.type}</td><td style="color:${l.side === 'BUY' ? 'var(--green-txt)' : 'var(--red-txt)'}">${l.side}</td><td class="mono">${fmtNum(l.premium, 2)}</td><td class="mono">${fmtNum(l.net_delta, 2)}</td></tr>`).join('');
+        window.currentStrategy = d;
+      } catch (e) { alert(e.message); } finally { setLoading('btn-analyze-strat', false); }
+    }
+
+    async function executeStrategy() {
+      if (!window.currentStrategy || !confirm(`Execute ${sv('strat-type')}?`)) return;
+      setLoading('btn-execute-strat', true);
+      try {
+        const d = await apiFetch('/api/strategy/execute', 'POST', { strategy: sv('strat-type'), symbol: sv('lab-sym'), expiry: sv('strat-expiry-sel'), legs: window.currentStrategy.legs });
+        alert(d.message + "\nOrders: " + d.order_ids.join(', '));
+      } catch (e) { alert(e.message); } finally { setLoading('btn-execute-strat', false); }
+    }
+
+    async function fetchExpiryStatus() {
+      try {
+        const d = await apiFetch(`/api/expiry/status?symbol=${sv('lab-sym')}`);
+        g('exp-sl').textContent = fmtPct(d.expiry_parameters.sl_pct * 100);
+        g('exp-tgt').textContent = fmtPct(d.expiry_parameters.target_pct * 100);
+        g('exp-lots').textContent = d.expiry_parameters.max_lots;
+        g('exp-hours').textContent = d.hours_to_expiry.toFixed(1) + 'h';
+        g('exp-gamma').textContent = d.gamma_risk.avoid_selling ? '🔴 HIGH' : '🟢 LOW';
+        g('exp-pinzone').textContent = 'Pin Zone: ' + (d.gamma_risk.pin_risk_zone || []).join(', ');
+        g('exp-rec').textContent = d.recommendation.recommendation;
+        g('exp-rationale').textContent = d.recommendation.rationale;
+        g('expiry-banner-container').innerHTML = d.warning_banner ? `<div class="error-box" style="margin-bottom:12px; font-weight:700">${d.warning_banner}</div>` : `<div class="info-box" style="margin-bottom:12px">No active expiry alerts.</div>`;
+      } catch (e) { console.error(e); }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    //  TAB — SCALP TRADE LAB
+    // ══════════════════════════════════════════════════════════════════════════════
+    let scalpInterval = null;
+
+    async function runScalpAnalysis() {
+      const sym = sv('scalp-sym');
+      const tf = iv('scalp-tf');
+      
+      // Fetch latest expiry for chain check
+      let expiry = "";
+      try {
+        const { expiries } = await apiFetch(`/api/expiries?symbol=${sym}`);
+        if (expiries && expiries.length > 0) expiry = expiries[0];
+      } catch(e) {}
+
+      try {
+        const d = await apiFetch('/api/scalp/analyze', 'POST', { symbol: sym, timeframe: tf, expiry: expiry });
+        if (d.error) throw new Error(d.error);
+        renderScalp(d);
+      } catch (e) {
+        console.error("Scalp analysis failed:", e);
+        g('scalp-verdict-reason').textContent = "Error: " + e.message;
+      }
+
+      // Auto-refresh every 10 seconds if panel is active
+      if (!scalpInterval) {
+        scalpInterval = setInterval(() => {
+          if (g('panel-scalp').classList.contains('active')) {
+            runScalpAnalysis();
+          } else {
+            clearInterval(scalpInterval);
+            scalpInterval = null;
+          }
+        }, 10000);
+      }
+    }
+
+    function renderScalp(d) {
+      const dec = d.decision || {};
+      const levels = d.levels || {};
+      const strike = d.strike || {};
+      const flags = dec.flags || {};
+
+      // Verdict Tile
+      const vt = g('scalp-verdict-tile');
+      const vText = g('scalp-verdict-text');
+      const vReason = g('scalp-verdict-reason');
+      
+      vText.textContent = dec.verdict || "WAITING";
+      vReason.textContent = dec.reason || "Initializing...";
+      g('scalp-target').textContent = dec.target_points ? `+${dec.target_points} pts` : "—";
+      g('scalp-sl').textContent = dec.sl_points ? `-${dec.sl_points} pts` : "—";
+
+      // Color coding
+      if (dec.verdict === "GREEN") {
+        vt.style.borderColor = "var(--green)";
+        vt.style.boxShadow = "0 0 30px rgba(34, 197, 94, 0.15)";
+        vText.style.color = "var(--green-txt)";
+      } else if (dec.verdict === "RED") {
+        vt.style.borderColor = "var(--red)";
+        vt.style.boxShadow = "0 0 30px rgba(239, 68, 68, 0.15)";
+        vText.style.color = "var(--red-txt)";
+      } else {
+        vt.style.borderColor = "var(--orange)";
+        vt.style.boxShadow = "none";
+        vText.style.color = "var(--orange-txt)";
+      }
+
+      // Flags
+      const updateFlag = (id, active, labelOverride) => {
+        const el = g(id);
+        const val = el.querySelector('.metric-value');
+        if (active) {
+          el.style.background = "rgba(34, 197, 94, 0.1)";
+          el.style.borderColor = "rgba(34, 197, 94, 0.3)";
+          val.textContent = labelOverride || "PASS ✓";
+          val.style.color = "var(--green-txt)";
+        } else {
+          el.style.background = "rgba(239, 68, 68, 0.05)";
+          el.style.borderColor = "rgba(239, 68, 68, 0.2)";
+          val.textContent = labelOverride || "FAIL ✗";
+          val.style.color = "var(--red-txt)";
+        }
+      };
+
+      updateFlag('flag-momentum', flags.momentum);
+      updateFlag('flag-vwap', flags.vwap, flags.vwap ? "ABOVE" : "BELOW");
+      updateFlag('flag-volume', flags.volume);
+      updateFlag('flag-candle', flags.candle_strength);
+      updateFlag('flag-oi', flags.oi_clear);
+      updateFlag('flag-late', !flags.late_move, flags.late_move ? "LATE" : "EARLY");
+
+      // Levels & Strike
+      g('scalp-pdlh').textContent = `${levels.pdl || "—"} / ${levels.pdh || "—"}`;
+      g('scalp-orb').textContent = `${levels.orb_low || "—"} - ${levels.orb_high || "—"}`;
+      
+      g('scalp-suggested-strike').textContent = strike.strike || "N/A";
+      g('scalp-suggested-strike').style.color = dec.verdict === "GREEN" ? "var(--green-txt)" : "white";
+      g('scalp-suggested-action').textContent = strike.action === "WAIT" ? "Waiting for high-probability entry..." : `ENTRY: ${strike.action}`;
+      
+      // Warnings
+      const wContainer = g('scalp-warnings');
+      wContainer.innerHTML = (d.warnings || []).map(w => `<div class="error-box" style="padding: 8px; margin-top: 5px; font-size: 11px">⚠️ ${w}</div>`).join('');
+    }
+  </script>
 
   </script>
 </body>
