@@ -610,6 +610,12 @@ def _run_btst(req: BTSTRequest) -> dict:
     us_market     = cue_data["us_market"]
     europe_market = cue_data["europe_market"]
     asia_market   = cue_data["asia_market"]
+    crude_pct     = cue_data.get("crude", 0.0)
+    usdinr_pct    = cue_data.get("derived_cues", {}).get("core_india", {}).get("indices", [{}])[-1].get("pct", 0.0)
+    # Safer extraction from derived_cues if available
+    for idx in cue_data.get("derived_cues", {}).get("core_india", {}).get("indices", []):
+        if idx.get("name") == "USD/INR":
+            usdinr_pct = idx.get("pct", 0.0)
 
     # ── 2. Local 1-day technicals ─────────────────────────────────────────────
     exchange = _get_exchange(stock_code)
@@ -642,6 +648,7 @@ def _run_btst(req: BTSTRequest) -> dict:
         "europe_market": europe_market,
         "asia_market":   asia_market,
         "vix":           cue_data.get("vix", 0.0),
+        "crude":         crude_pct,
         "derived_cues":  cue_data.get("derived_cues", {}),
     }
 
@@ -679,6 +686,9 @@ def _run_btst(req: BTSTRequest) -> dict:
         us_pts = {"UP": -5,  "DOWN": 8,  "FLAT": 0}[us_market]
         eu_pts = {"UP": -3,  "DOWN": 5,  "FLAT": 0}[europe_market]
         as_pts = {"UP": -2,  "DOWN": 2,  "FLAT": 0}[asia_market]
+        # For Puts, Up in Crude/Forex is Bullish (Down for market)
+        crude_pts = 5 if crude_pct > 0 else (-5 if crude_pct < 0 else 0)
+        usdinr_pts = 3 if usdinr_pct > 0 else (-3 if usdinr_pct < 0 else 0)
     else:
         sub_price_action = min(35, int(
             (10 if signal_data.get("macd_bullish") else 0) +
@@ -690,13 +700,16 @@ def _run_btst(req: BTSTRequest) -> dict:
         us_pts = {"UP": 8,  "DOWN": -5,  "FLAT": 0}[us_market]
         eu_pts = {"UP": 5,  "DOWN": -3,  "FLAT": 0}[europe_market]
         as_pts = {"UP": 2,  "DOWN": -2,  "FLAT": 0}[asia_market]
+        # Crude/Forex pts: Up is bad for India (inverted)
+        crude_pts = -5 if crude_pct > 0 else (5 if crude_pct < 0 else 0)
+        usdinr_pts = -3 if usdinr_pct > 0 else (3 if usdinr_pct < 0 else 0)
 
     sub_oi = min(25, (15 if oi_data.get("support_below") else 0) + (10 if 0.8 <= pcr <= 1.2 else 0))
     sub_iv = 10 if iv_p < 60 else (-5 if iv_p > 80 else 0)
 
     # ── 6. Final Score (Sum of sub-scores) ───────────────────────────────────
     # We sum the breakdown components to ensure the total matches the visualization
-    total_calculated_score = sub_price_action + sub_oi + sub_iv + gn_pts + us_pts + eu_pts + as_pts
+    total_calculated_score = sub_price_action + sub_oi + sub_iv + gn_pts + us_pts + eu_pts + as_pts + crude_pts + usdinr_pts
     score = min(max(total_calculated_score, 0), 100)
     
     # --- BTST GUARDRAIL ---
@@ -738,6 +751,8 @@ def _run_btst(req: BTSTRequest) -> dict:
             "us_market":    us_pts,
             "europe":       eu_pts,
             "asia":         as_pts,
+            "crude":        crude_pts,
+            "forex":        usdinr_pts,
         },
         "indicators": {
             "close_strength": cs,

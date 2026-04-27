@@ -48,6 +48,11 @@ WORLD_INDICES = {
     
     # Australia
     "ASX 200":        "^AXJO",
+
+    # Commodities & Macro
+    "Brent Crude Oil": "BZ=F",
+    "Gold":            "GC=F",
+    "USD/INR":         "INR=X",
 }
 
 REGION_MAP = {
@@ -60,6 +65,7 @@ REGION_MAP = {
     "Nikkei 225": "Asia", "Hang Seng": "Asia", "STI (Singapore)": "Asia", 
     "Shanghai": "Asia", "Kospi": "Asia", "Taiwan (TWII)": "Asia",
     "ASX 200": "Australia",
+    "Brent Crude Oil": "Commodities", "Gold": "Commodities", "USD/INR": "Forex",
 }
 
 # Ticker → BTST cue group mapping
@@ -75,7 +81,7 @@ def fetch_world_markets(ignore_cache: bool = False) -> dict:
     2. Secondary/Merge: yfinance (Coverage for missing global indices)
     """
     global _GLOBAL_MARKETS_CACHE, _GLOBAL_MARKETS_TIMESTAMP
-
+    # Translate to yf result if groww missing.
     # Check cache
     if not ignore_cache and _GLOBAL_MARKETS_CACHE and (time.time() - _GLOBAL_MARKETS_TIMESTAMP < _GLOBAL_MARKETS_TTL):
         return _GLOBAL_MARKETS_CACHE
@@ -172,30 +178,33 @@ def fetch_world_markets(ignore_cache: bool = False) -> dict:
     except Exception as e:
         return {"markets": [], "timestamp": datetime.now().isoformat(), "error": str(e)}
 
-def _pct_to_signal(avg_pct: float, threshold: float = 0.15) -> Literal["UP", "DOWN", "FLAT"]:
-    """Convert an average % change into UP/DOWN/FLAT cue signal."""
-    if avg_pct > threshold:
+def _pct_to_signal(avg_pct: float) -> Literal["UP", "DOWN", "FLAT"]:
+    """Convert an average % change into UP/DOWN/FLAT cue signal. Threshold removed: any change counts."""
+    if avg_pct > 0:
         return "UP"
-    if avg_pct < -threshold:
+    if avg_pct < 0:
         return "DOWN"
     return "FLAT"
 
 def derive_btst_cues(markets: list[dict]) -> dict:
     """
     Derive the BTST global cue signals with 40/60 weightage.
-    Core (40%): Nifty 50, Gift Nifty, India VIX
+    Core (40%): Nifty 50, Gift Nifty, India VIX, Brent Crude (Inverted)
     Global (60%): US, Europe, Asia
     """
     by_name = {m["name"]: m for m in markets}
 
     # ── 1. Indian Core (40% Weightage) ──────────
-    n50_pct   = by_name.get("NIFTY 50", {}).get("change_pct", 0.0)
-    gift_pct  = by_name.get("GIFT NIFTY (NSE IX Proxy)", {}).get("change_pct", 0.0)
-    vix_pct   = by_name.get("INDIA VIX", {}).get("change_pct", 0.0)
+    n50_pct    = by_name.get("NIFTY 50", {}).get("change_pct", 0.0)
+    gift_pct   = by_name.get("GIFT NIFTY (NSE IX Proxy)", {}).get("change_pct", 0.0)
+    vix_pct    = by_name.get("INDIA VIX", {}).get("change_pct", 0.0)
+    crude_pct  = by_name.get("Brent Crude Oil", {}).get("change_pct", 0.0)
+    usdinr_pct = by_name.get("USD/INR", {}).get("change_pct", 0.0)
     
-    # VIX is inverted for bullishness (VIX down = bullish)
-    core_avg = (n50_pct + gift_pct - vix_pct) / 3.0
-    core_signal = _pct_to_signal(core_avg, threshold=0.15)
+    # VIX, Crude, and USD/INR are inverted for Indian bullishness (Down = bullish)
+    # We give Crude and USD/INR a 0.5 weighting because they are secondary drivers
+    core_avg = (n50_pct + gift_pct - vix_pct - (0.5 * crude_pct) - (0.5 * usdinr_pct)) / 4.0
+    core_signal = _pct_to_signal(core_avg)
 
     # ── 2. Global Markets (60% Weightage) ─────────
     # US
@@ -214,20 +223,21 @@ def derive_btst_cues(markets: list[dict]) -> dict:
     as_avg = sum(as_vals) / len(as_vals) if as_vals else 0.0
     
     global_avg = (us_avg + eu_avg + as_avg) / 3.0
-    global_signal = _pct_to_signal(global_avg, threshold=0.15)
+    global_signal = _pct_to_signal(global_avg)
 
     # ── 3. Weighted Final Signal ──────────────────
     weighted_pct = (core_avg * 0.4) + (global_avg * 0.6)
-    final_signal = _pct_to_signal(weighted_pct, threshold=0.15)
+    final_signal = _pct_to_signal(weighted_pct)
 
     return {
         "weighted_pct": round(weighted_pct, 3),
         "final_signal": final_signal,
-        "gift_nifty":   _pct_to_signal(gift_pct, threshold=0.15),
-        "us_market":    _pct_to_signal(us_avg, threshold=0.15),
-        "europe_market": _pct_to_signal(eu_avg, threshold=0.15),
-        "asia_market":  _pct_to_signal(as_avg, threshold=0.15),
+        "gift_nifty":   _pct_to_signal(gift_pct),
+        "us_market":    _pct_to_signal(us_avg),
+        "europe_market": _pct_to_signal(eu_avg),
+        "asia_market":  _pct_to_signal(as_avg),
         "vix":          vix_pct,
+        "crude":        crude_pct,
         "derived_cues": {
             "core_india": {
                 "signal": core_signal,
@@ -235,7 +245,9 @@ def derive_btst_cues(markets: list[dict]) -> dict:
                 "indices": [
                     {"name": "Nifty 50", "pct": n50_pct},
                     {"name": "Gift Nifty", "pct": gift_pct},
-                    {"name": "India VIX", "pct": vix_pct}
+                    {"name": "India VIX", "pct": vix_pct},
+                    {"name": "Brent Crude", "pct": crude_pct},
+                    {"name": "USD/INR", "pct": usdinr_pct}
                 ]
             },
             "global_market": {

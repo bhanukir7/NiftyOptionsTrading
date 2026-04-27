@@ -2492,6 +2492,8 @@
         { name: 'US Market (±8)', val: ss.us_market || 0, max: 8, col: ss.us_market >= 0 ? '#22c55e' : '#ef4444' },
         { name: 'Europe (±5)', val: ss.europe || 0, max: 5, col: ss.europe >= 0 ? '#22c55e' : '#ef4444' },
         { name: 'Asia (±2)', val: ss.asia || 0, max: 2, col: ss.asia >= 0 ? '#22c55e' : '#ef4444' },
+        { name: 'Crude Oil (±5)', val: ss.crude || 0, max: 5, col: ss.crude >= 0 ? '#22c55e' : '#ef4444' },
+        { name: 'Forex (±3)', val: ss.forex || 0, max: 3, col: ss.forex >= 0 ? '#22c55e' : '#ef4444' },
       ];
       g('btst-sub-scores').innerHTML = subItems.map(i => {
         const pct = Math.abs(i.val) / i.max * 100;
@@ -2539,8 +2541,14 @@
       if (!markets.length) { el.innerHTML = '<div class="info-box">No market data.</div>'; return; }
 
       // Update header counters
-      const up = markets.filter(m => m.direction === 'up').length;
-      const down = markets.filter(m => m.direction === 'down').length;
+      const up = markets.filter(m => {
+        const inv = ['INDIA VIX', 'Brent Crude Oil', 'USD/INR'].includes(m.name);
+        return inv ? m.direction === 'down' : m.direction === 'up';
+      }).length;
+      const down = markets.filter(m => {
+        const inv = ['INDIA VIX', 'Brent Crude Oil', 'USD/INR'].includes(m.name);
+        return inv ? m.direction === 'up' : m.direction === 'down';
+      }).length;
       const isBullish = up >= markets.length / 2;
       if (g('gl-state')) { g('gl-state').textContent = isBullish ? '🟢 BULLISH' : '🔴 BEARISH'; g('gl-state').className = isBullish ? 'pos' : 'neg'; }
       if (g('gl-up-ct')) g('gl-up-ct').textContent = `${up}↑`;
@@ -2553,8 +2561,8 @@
         byRegion[m.region].push(m);
       });
 
-      const regionOrder = ['India', 'Americas', 'Europe', 'Asia', 'Australia'];
-      const regionIcons = { India: '🇮🇳', Americas: '🌎', Europe: '🇪🇺', Asia: '🌏', Australia: '🦘' };
+      const regionOrder = ['India', 'Americas', 'Europe', 'Asia', 'Australia', 'Commodities', 'Forex'];
+      const regionIcons = { India: '🇮🇳', Americas: '🌎', Europe: '🇪🇺', Asia: '🌏', Australia: '🦘', Commodities: '🛢️', Forex: '💱' };
       const maxAbs = Math.max(...markets.map(m => Math.abs(m.change_pct)), 0.01);
 
       let html = '';
@@ -2565,7 +2573,8 @@
         items.forEach(m => {
           const isUp = m.direction === 'up';
           const isDown = m.direction === 'down';
-          const col = isUp ? '#22c55e' : isDown ? '#ef4444' : '#9093b0';
+          const isInverted = ['INDIA VIX', 'Brent Crude Oil', 'USD/INR'].includes(m.name);
+          const col = isUp ? (isInverted ? '#ef4444' : '#22c55e') : isDown ? (isInverted ? '#22c55e' : '#ef4444') : '#9093b0';
           const pct = m.change_pct;
           const barW = Math.round(Math.abs(pct) / maxAbs * 56);
           const sign = pct > 0 ? '+' : '';

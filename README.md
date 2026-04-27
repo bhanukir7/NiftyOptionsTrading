@@ -1,3 +1,4 @@
+**Release Version 5.2** — *April 28, 2026, 03:00 AM IST* (Macro Confluence & Zero-Threshold Logic)
 **Release Version 5.1** — *April 28, 2026, 01:25 AM IST* (Data Sovereignty & Quantitative Edge)
 **Release Version 5.0** — *April 28, 2026, 12:00 AM IST* (Institutional Strategy & Scalp Lab)
 **Release Version 4.1** — *April 27, 2026, 12:00 PM IST* (Scanning Engine Stabilization)
