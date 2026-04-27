@@ -676,6 +676,16 @@
       transition: width .4s;
     }
 
+    /* ── Switch Toggle ─────────────────────────────────────────────────── */
+    .switch { position: relative; display: inline-block; width: 34px; height: 18px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--bg4); transition: .3s; border-radius: 18px; border: 1px solid var(--border); }
+    .slider:before { position: absolute; content: ""; height: 12px; width: 12px; left: 2px; bottom: 2px; background-color: white; transition: .3s; border-radius: 50%; }
+    input:checked + .slider { background-color: var(--purple); }
+    input:checked + .slider:before { transform: translateX(16px); }
+    .slider.round { border-radius: 34px; }
+    .slider.round:before { border-radius: 50%; }
+
     /* ── OI chart bars ──────────────────────────────────────────────── */
     .oi-row {
       display: flex;
@@ -1787,7 +1797,16 @@
         <!-- Card 1: Live Greeks Strip -->
         <div class="card">
           <div class="card-title" style="display:flex; justify-content:space-between; align-items:center">
-            <span>Live Greeks Strip</span>
+            <div style="display:flex; align-items:center; gap:12px">
+              <span>Live Greeks Strip</span>
+              <div style="display:flex; gap:8px; align-items:center">
+                <label class="switch">
+                  <input type="checkbox" id="lab-auto-refresh" onchange="toggleLabRefresh()">
+                  <span class="slider round"></span>
+                </label>
+                <span style="font-size:10px; color:var(--text3); font-weight:600">LIVE</span>
+              </div>
+            </div>
             <div style="display:flex; gap:8px; align-items:center">
               <select id="lab-sym" onchange="fetchLiveGreeks()" style="width:130px; background:var(--bg3); border:1px solid var(--border); color:white; padding:4px 8px; border-radius:4px">
                 <option value="NIFTY">NIFTY</option>
@@ -1814,47 +1833,7 @@
           <div id="lab-source-badge" style="margin-top:10px; text-align:right"></div>
         </div>
 
-        <div class="grid g2" style="margin-top:12px; align-items:start">
-          <!-- Card 2: Portfolio Greeks -->
-          <div class="card">
-            <div class="card-title" style="display:flex; justify-content:space-between; align-items:center">
-              <span>Portfolio Greeks</span>
-              <button class="btn btn-sm" onclick="refreshPortfolioGreeks()" style="margin:0">Refresh ⟳</button>
-            </div>
-            <div class="grid g4" id="lab-port-metrics">
-              <div class="metric">
-                <div class="metric-label">Net Δ</div>
-                <div id="port-delta" class="metric-value">—</div>
-              </div>
-              <div class="metric">
-                <div class="metric-label">Net Γ</div>
-                <div id="port-gamma" class="metric-value">—</div>
-              </div>
-              <div class="metric">
-                <div class="metric-label">Net Θ/day</div>
-                <div id="port-theta" class="metric-value" style="color:var(--orange-txt)">—</div>
-              </div>
-              <div class="metric">
-                <div class="metric-label">Net V</div>
-                <div id="port-vega" class="metric-value" style="color:var(--blue-txt)">—</div>
-              </div>
-            </div>
-            <div style="display:flex; gap:8px; margin-top:12px" id="lab-port-badges"></div>
-            <div style="overflow-x:auto; margin-top:12px; max-height:250px">
-              <table class="tbl" id="lab-port-tbl">
-                <thead>
-                  <tr>
-                    <th>Symbol</th>
-                    <th>Qty</th>
-                    <th>Delta</th>
-                    <th>Theta</th>
-                  </tr>
-                </thead>
-                <tbody id="lab-port-body"></tbody>
-              </table>
-            </div>
-          </div>
-
+        <div style="margin-top:12px">
           <!-- Card 3: Strategy Builder -->
           <div class="card">
             <div class="card-title">Strategy Builder</div>
@@ -1950,6 +1929,16 @@
       </div>
 
       <div id="panel-scalp" class="panel">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+          <div class="card-title" style="margin:0">⚡ Scalp Trade Lab</div>
+          <div style="display:flex; gap:10px; align-items:center">
+            <label class="switch">
+              <input type="checkbox" id="scalp-auto-refresh" onchange="toggleScalpRefresh()">
+              <span class="slider round"></span>
+            </label>
+            <span style="font-size:11px; color:var(--text3); font-weight:600">LIVE FEED</span>
+          </div>
+        </div>
         <div id="scalp-verdict-tile" class="card" style="padding: 30px; text-align: center; border-width: 2px; transition: all 0.3s ease-in-out; background: var(--bg2)">
           <div style="font-size: 14px; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px">Instant Verdict</div>
           <div id="scalp-verdict-text" style="font-size: 48px; font-weight: 800; margin-bottom: 12px">WAITING</div>
@@ -2202,8 +2191,8 @@
       if (id === 'advanced') { refreshAdvancedSignals(); refreshAdvancedSnapshots(); }
       if (id === 'journal') loadJournal();
       if (id === 'positions') fetchPositions();
-      if (id === 'lab') { fetchLiveGreeks(); refreshPortfolioGreeks(); fetchExpiryStatus(); loadExpiries(sv('lab-sym'), 'CE', 'strat-expiry-sel'); }
-      if (id === 'scalp') { runScalpAnalysis(); }
+      if (id === 'lab') { fetchExpiryStatus(); loadExpiries(sv('lab-sym'), 'CE', 'strat-expiry-sel'); }
+      if (id === 'scalp') { /* Manual fetch only */ }
     }
 
 
@@ -3361,6 +3350,30 @@
     // ══════════════════════════════════════════════════════════════════════════════
     //  TAB — GREEKS & STRATEGY LAB
     // ══════════════════════════════════════════════════════════════════════════════
+    let labInterval = null;
+
+    function toggleLabRefresh() {
+      const active = g('lab-auto-refresh').checked;
+      if (active) {
+        if (!labInterval) {
+          fetchLiveGreeks();
+          labInterval = setInterval(() => {
+            if (g('lab-auto-refresh').checked && g('panel-lab').classList.contains('active')) {
+              fetchLiveGreeks();
+            } else {
+              clearInterval(labInterval);
+              labInterval = null;
+            }
+          }, 15000); // 15s refresh for Greeks
+        }
+      } else {
+        if (labInterval) {
+          clearInterval(labInterval);
+          labInterval = null;
+        }
+      }
+    }
+
     async function fetchLiveGreeks() {
       const sym = sv('lab-sym');
       setLoading('btn-fetch-live', true);
@@ -3375,23 +3388,35 @@
     function renderGreeks(d) {
       const body = g('lab-greeks-body');
       body.innerHTML = '';
-      if (!d.strikes) return;
+      if (!d || !d.strikes || d.strikes.length === 0) {
+        body.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--text3)">${d.error || 'No data available from this source.'}</td></tr>`;
+        return;
+      }
       const spot = d.spot;
       d.strikes.forEach(s => {
         const isATM = Math.abs(s.strikePrice - spot) <= 25;
         const rowCls = isATM ? 'style="background:rgba(99,102,241,0.1)"' : '';
         body.innerHTML += `<tr ${rowCls}>
           <td class="mono" style="font-weight:700">₹${s.strikePrice}</td>
-          <td class="dim">${fmtNum(s.CE.impliedVolatility, 1)}</td><td class="pos">${fmtNum(s.CE.delta, 2)}</td><td class="neu">${fmtNum(s.CE.gamma, 5)}</td><td class="neg">${fmtNum(s.CE.theta, 2)}</td><td class="dim">${fmtNum(s.CE.vega, 2)}</td>
-          <td class="dim">${fmtNum(s.PE.impliedVolatility, 1)}</td><td class="neg">${fmtNum(s.PE.delta, 2)}</td><td class="neu">${fmtNum(s.PE.gamma, 5)}</td><td class="neg">${fmtNum(s.PE.theta, 2)}</td><td class="dim">${fmtNum(s.PE.vega, 2)}</td>
+          <td class="mono ${s.CE.impliedVolatility > 0 ? '' : 'dim'}">${fmtNum(s.CE.impliedVolatility, 1)}</td>
+          <td class="${s.CE.delta > 0 ? 'pos' : 'neg'} mono">${fmtNum(s.CE.delta, 2)}</td>
+          <td class="mono">${fmtNum(s.CE.gamma, 5)}</td>
+          <td class="neg mono">${fmtNum(s.CE.theta, 2)}</td>
+          <td class="mono">${fmtNum(s.CE.vega, 2)}</td>
+          <td class="mono ${s.PE.impliedVolatility > 0 ? '' : 'dim'}">${fmtNum(s.PE.impliedVolatility, 1)}</td>
+          <td class="${s.PE.delta > 0 ? 'pos' : 'neg'} mono">${fmtNum(s.PE.delta, 2)}</td>
+          <td class="mono">${fmtNum(s.PE.gamma, 5)}</td>
+          <td class="neg mono">${fmtNum(s.PE.theta, 2)}</td>
+          <td class="mono">${fmtNum(s.PE.vega, 2)}</td>
         </tr>`;
       });
-      g('lab-source-badge').innerHTML = `<span class="badge ${d.source === 'NSE' ? 'badge-buy' : 'badge-wait'}">Source: ${d.source}</span>`;
+      g('lab-source-badge').innerHTML = `<span class="badge ${d.source && d.source.includes('NSE') ? 'badge-buy' : 'badge-wait'}">Source: ${d.source || 'Unknown'}</span>`;
     }
 
     async function refreshPortfolioGreeks() {
       try {
-        const d = await apiFetch('/api/greeks/portfolio');
+        const sym = sv('lab-sym');
+        const d = await apiFetch(`/api/greeks/portfolio?symbol=${sym}`);
         const agg = d.aggregates || {};
         g('port-delta').textContent = fmtNum(agg.net_delta, 2);
         g('port-delta').className = 'metric-value ' + (agg.net_delta > 0 ? 'pos' : 'neg');
@@ -3418,7 +3443,7 @@
         g('strat-max-l').textContent = typeof d.max_loss === 'number' ? fmtINR(d.max_loss) : d.max_loss;
         g('strat-net-p').textContent = fmtINR(d.net_premium);
         g('strat-regime').textContent = d.ideal_regime;
-        g('strat-legs').innerHTML = d.legs.map(l => `<tr><td class="mono">${l.strike}</td><td>${l.type}</td><td style="color:${l.side === 'BUY' ? 'var(--green-txt)' : 'var(--red-txt)'}">${l.side}</td><td class="mono">${fmtNum(l.premium, 2)}</td><td class="mono">${fmtNum(l.net_delta, 2)}</td></tr>`).join('');
+        g('strat-legs').innerHTML = (d.legs || []).map(l => `<tr><td class="mono">${l.strike}</td><td>${l.type}</td><td style="color:${l.side === 'BUY' ? 'var(--green-txt)' : 'var(--red-txt)'}">${l.side}</td><td class="mono">${fmtNum(l.premium, 2)}</td><td class="mono">${fmtNum(l.net_delta, 2)}</td></tr>`).join('');
         window.currentStrategy = d;
       } catch (e) { alert(e.message); } finally { setLoading('btn-analyze-strat', false); }
     }
@@ -3452,6 +3477,28 @@
     // ══════════════════════════════════════════════════════════════════════════════
     let scalpInterval = null;
 
+    function toggleScalpRefresh() {
+      const active = g('scalp-auto-refresh').checked;
+      if (active) {
+        if (!scalpInterval) {
+          runScalpAnalysis();
+          scalpInterval = setInterval(() => {
+            if (g('scalp-auto-refresh').checked && g('panel-scalp').classList.contains('active')) {
+              runScalpAnalysis();
+            } else {
+              clearInterval(scalpInterval);
+              scalpInterval = null;
+            }
+          }, 10000);
+        }
+      } else {
+        if (scalpInterval) {
+          clearInterval(scalpInterval);
+          scalpInterval = null;
+        }
+      }
+    }
+
     async function runScalpAnalysis() {
       const sym = sv('scalp-sym');
       const tf = iv('scalp-tf');
@@ -3470,18 +3517,6 @@
       } catch (e) {
         console.error("Scalp analysis failed:", e);
         g('scalp-verdict-reason').textContent = "Error: " + e.message;
-      }
-
-      // Auto-refresh every 10 seconds if panel is active
-      if (!scalpInterval) {
-        scalpInterval = setInterval(() => {
-          if (g('panel-scalp').classList.contains('active')) {
-            runScalpAnalysis();
-          } else {
-            clearInterval(scalpInterval);
-            scalpInterval = null;
-          }
-        }, 10000);
       }
     }
 

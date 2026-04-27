@@ -111,10 +111,11 @@ def fetch_multiday_data(breeze, stock_code: str, exchange_code: str, interval: s
         
         if response and response.get("Status") == 200 and "Success" in response:
             df = pd.DataFrame(response['Success'])
-            for col in ["open", "high", "low", "close"]:
+            for col in ["open", "high", "low", "close", "volume"]:
                 if col in df.columns:
-                    df[col] = df[col].astype(float)
-            df["datetime"] = pd.to_datetime(df["datetime"])
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            df["datetime"] = pd.to_datetime(df["datetime"], errors='coerce')
+            df = df.dropna(subset=["datetime"])
             df = df.reset_index(drop=True)
             df.attrs['source'] = 'Breeze'
             return df

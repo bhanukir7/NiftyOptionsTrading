@@ -1,8 +1,39 @@
+**Release Version 5.1** — *April 28, 2026, 01:25 AM IST* (Data Sovereignty & Quantitative Edge)
 **Release Version 5.0** — *April 28, 2026, 12:00 AM IST* (Institutional Strategy & Scalp Lab)
 **Release Version 4.1** — *April 27, 2026, 12:00 PM IST* (Scanning Engine Stabilization)
 **Release Version 4.0** — *April 26, 2026, 04:45 AM IST* (Morning Trade & Resilience Overhaul)
-**Release Version 3.2** — *April 25, 2026, 11:20 PM IST*
-**Release Version 3.1** — *April 25, 2026, 02:40 PM IST*
+**Release Version 3.2** — *April 25, 2026, 11:20 PM IST* (The High-Fidelity Greek Refinement)
+**Release Version 3.1** — *April 25, 2026, 02:40 PM IST* (The Portfolio Intelligence Overhaul)
+**Release Version 2.0** — *April 24, 2026, 05:45 PM IST* (The Multi-Broker & Automation Overhaul)
+**Release Version 1.10** — *April 24, 2026, 12:30 PM IST* (The Observability & Efficiency Overhaul)
+**Release Version 1.9** — *April 24, 2026, 01:40 AM IST* (The Hedge-Fund Decision Pipeline)
+**Release Version 1.8.1** — *April 24, 2026, 01:25 AM IST* (Advanced Signal & Risk Upgrades)
+**Release Version 1.8** — *April 24, 2026, 01:15 AM IST* (The Risk & Regime Overhaul)
+**Release Version 1.7.2** — *April 23, 2026, 09:55 AM IST* (Session Resilience & Intraday Fixes)
+**Release Version 1.7.1** — *April 23, 2026, 02:45 AM IST* (High-Fidelity Signal Refinement)
+**Release Version 1.7** — *April 21, 2026, 04:20 PM IST* (The Observability Hub)
+**Release Version 1.6** — *April 14, 2026, 01:45 AM IST* (The Audit & FIFO Overhaul)
+**Release Version 1.5** — *April 13, 2026, 03:10 AM IST*
+**Release Version 1.4** — *April 13, 2026, 01:05 AM IST*
+**Release Version 1.3** — *April 12, 2026, 08:02 AM IST*
+**Release Version 1.2** — *April 12, 2026, 06:49 AM IST*
+**Release Version 1.1** — *April 12, 2026, 02:29 AM IST*
+**Release Version 1.0** — *April 10, 2026, 12:00 AM IST* (The Foundation)
+
+## 🚀 Version 5.1: The Data Sovereignty & Quantitative Edge
+
+This release transitions the dashboard into a truly independent quantitative workstation by removing reliance on external websites and implementing professional-grade mathematical solvers.
+
+### Key 5.1 Improvements:
+- **🚀 100% Broker-Powered Greeks**: Decommissioned the unreliable NSE website scraper. The **Greeks Strategy Lab** now runs exclusively on official data from your ICICI Breeze / Broker feed, ensuring 100% uptime and no more 403 Forbidden errors.
+- **🧠 Iterative IV Solver (Newton-Raphson)**: Implemented a professional-grade quantitative engine that reverse-calculates Implied Volatility (IV) from live market prices. This ensures accurate Delta, Theta, Gamma, and Vega even when exchange-provided IV is missing or stale.
+- **⚡ Manual Fetch Control**: Optimized the UI to prevent unnecessary API calls. Data in the **Greeks Lab** and **Scalp Lab** now only fetches when you explicitly click the "Fetch" or "Analyze" buttons, preserving your API rate limits.
+- **🎯 Precision Strike Trimming**: Re-engineered the option chain display to focus on what matters. The table now intelligently centers on the **ATM (At-The-Money)** strike and shows exactly 21 strikes (+/- 10 OTM/ITM), eliminating the need for endless scrolling.
+- **🛡️ Robust Spot Price Fallback**: Implemented a smart fallback mechanism for after-hours analysis. If the live spot price is unavailable, the system automatically uses the **median strike price** of the option chain as a proxy for Greek calculations.
+- **🔧 UI Alignment & Stability**: Fixed critical alignment bugs in the Greeks table and hardened the frontend against null responses, ensuring a seamless experience across all symbols including NIFTY, BANKNIFTY, and SENSEX.
+- **💼 Focused Strategy Analysis**: Removed portfolio-level noise from the Strategy Lab. It is now a dedicated environment for "What-If" strategy building and contract-specific risk analysis.
+
+---
 
 ## 🚀 Version 5.0: The Institutional Strategy & Scalp Lab
 

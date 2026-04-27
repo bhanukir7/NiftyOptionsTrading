@@ -33,14 +33,10 @@ class NSEGreeksFetcher:
     def calculate_greeks(self, S, K, T, r, sigma, option_type="CE"):
         """
         Black-Scholes Greek calculation.
-        S: Spot Price
-        K: Strike Price
-        T: Time to expiry in years
-        r: Risk-free rate (e.g., 0.07)
-        sigma: Implied Volatility (e.g., 0.15 for 15%)
+        S: Spot Price, K: Strike, T: Years, r: Rate, sigma: IV
         """
         if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
-            return {"delta": 0, "gamma": 0, "theta": 0, "vega": 0}
+            return {"delta": 0, "gamma": 0, "theta": 0, "vega": 0, "impliedVolatility": round(sigma*100, 2)}
         
         try:
             d1 = (math.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
@@ -60,20 +56,57 @@ class NSEGreeksFetcher:
                 "delta": round(delta, 4),
                 "gamma": round(gamma, 6),
                 "theta": round(theta / 365, 4), # Theta per day
-                "vega": round(vega, 4)
+                "vega": round(vega, 4),
+                "impliedVolatility": round(sigma * 100, 2)
             }
         except Exception as e:
-            print(f"[NSEGreeksFetcher] Greek calc error: {e}")
-            return {"delta": 0, "gamma": 0, "theta": 0, "vega": 0}
+            return {"delta": 0, "gamma": 0, "theta": 0, "vega": 0, "impliedVolatility": 0}
+
+    def solve_iv(self, market_price, S, K, T, r, option_type="CE"):
+        """Iteratively solves for IV using Newton-Raphson method."""
+        if market_price <= 0 or T <= 0: return 0.15 # Fallback
+        
+        sigma = 0.20 # Initial guess
+        for i in range(20):
+            # Calculate price with current sigma
+            d1 = (math.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
+            d2 = d1 - sigma * math.sqrt(T)
+            
+            if option_type == "CE":
+                price = S * self.n_cdf(d1) - K * math.exp(-r * T) * self.n_cdf(d2)
+            else:
+                price = K * math.exp(-r * T) * self.n_cdf(-d2) - S * self.n_cdf(-d1)
+            
+            diff = market_price - price
+            if abs(diff) < 0.01:
+                return sigma
+            
+            # Vega (derivative of price wrt sigma)
+            vega = S * self.n_pdf(d1) * math.sqrt(T)
+            if vega < 0.0001: break
+            
+            sigma = sigma + diff / vega
+            if sigma <= 0: sigma = 0.0001
+            
+        return sigma
 
     def fetch_option_chain(self, symbol: str) -> dict:
         """Fetches NSE option chain and calculates Greeks."""
-        cache_key = f"nse_chain_{symbol}"
+        s = symbol.upper()
+        # BSE Check
+        if s in ["BSESEN", "SENSEX", "BANKEX", "BSEX"]:
+            return {"error": f"{s} is a BSE symbol. NSE does not provide Greeks for BSE.", "source": "BSE (Unsupported)", "strikes": []}
+
+        cache_key = f"nse_chain_{s}"
         cached_data = self.cache.get(cache_key)
         if cached_data:
             return cached_data
 
-        url = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
+        # Determine endpoint (indices vs equities)
+        is_index = s in ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]
+        base_url = "option-chain-indices" if is_index else "option-chain-equities"
+        url = f"https://www.nseindia.com/api/{base_url}?symbol={s}"
+        
         data = None
         source = "NSE"
 

@@ -127,16 +127,25 @@ class EngineModeRequest(BaseModel):
 
 # ── UTILS ────────────────────────────────────────────────────────────────────
 def clean_json_data(o):
-    """Recursively replace NaN/Inf with 0 for JSON serialization."""
+    """Recursively replace NaN/Inf with 0 and handle numpy types for JSON serialization."""
     import math
+    import numpy as np
+    
     if isinstance(o, dict):
         return {k: clean_json_data(v) for k, v in o.items()}
     elif isinstance(o, (list, tuple)):
         return [clean_json_data(x) for x in o]
-    elif isinstance(o, float):
-        if math.isnan(o) or math.isinf(o):
+    elif isinstance(o, (np.bool_, bool)):
+        return bool(o)
+    elif isinstance(o, (np.integer, int)):
+        return int(o)
+    elif isinstance(o, (np.floating, float)):
+        val = float(o)
+        if math.isnan(val) or math.isinf(val):
             return 0.0
-        return o
+        return val
+    elif o is None:
+        return None
     return o
 
 
@@ -1388,7 +1397,7 @@ def _run_strict_analysis(req: StrictRequest) -> dict:
              target_df = chain_df[chain_df["right"].str.upper().isin([opt_type_full, req.option_type.upper()])].copy()
              
              if not target_df.empty:
-                 target_df["strike_price"] = target_df["strike_price"].astype(float)
+                 target_df["strike_price"] = pd.to_numeric(target_df["strike_price"], errors='coerce').fillna(0)
                  atm_diff = (target_df["strike_price"] - spot_price).abs()
                  atm_idx = atm_diff.idxmin()
                  atm_strike = target_df.loc[atm_idx, "strike_price"]
@@ -1435,21 +1444,89 @@ async def strict_analyze(req: StrictRequest):
 
 @app.get("/api/greeks/live")
 async def api_greeks_live(symbol: str = "NIFTY"):
+    broker = _get_breeze()
     loop = asyncio.get_event_loop()
     try:
-        result = await loop.run_in_executor(_executor, lambda: greeks_fetcher.fetch_option_chain(symbol))
+        # Relying exclusively on Broker data + Internal IV Solver
+        expiries = get_expiries(symbol)
+        if not expiries:
+            return JSONResponse({"error": "No expiries found", "source": "unavailable"})
+        
+        target_expiry = str(expiries[0])
+        chain_df = await loop.run_in_executor(_executor, lambda: get_option_chain(broker, symbol, target_expiry))
+        
+        spot = await loop.run_in_executor(_executor, lambda: broker.get_ltp(symbol, exchange=_get_exchange(symbol)))
+        if not spot or spot <= 0:
+            if not chain_df.empty:
+                spot = chain_df["strike_price"].median()
+        
+        if chain_df.empty:
+            return JSONResponse({"error": "Broker chain empty", "source": "unavailable"})
+            
+        strikes_processed = []
+        expiry_dt = datetime.strptime(target_expiry, "%Y-%m-%d").replace(hour=15, minute=30)
+        T = max(0, (expiry_dt - datetime.now()).total_seconds()) / (365 * 24 * 3600)
+        
+        for strike, group in chain_df.groupby("strike_price"):
+            ce = group[group["right"].str.upper().isin(["CALL", "CE"])]
+            pe = group[group["right"].str.upper().isin(["PUT", "PE"])]
+            
+            def _wrap_leg(leg_df, s, k, t, side):
+                if leg_df.empty: return {"lastPrice": 0, "delta": 0, "theta": 0, "gamma": 0, "vega": 0, "impliedVolatility": 0}
+                row = leg_df.iloc[0]
+                ltp = row.get("last_traded_price", 0)
+                iv = greeks_fetcher.solve_iv(ltp, s, k, t, 0.07, side)
+                greeks = greeks_fetcher.calculate_greeks(s, k, t, 0.07, iv, side)
+                return {
+                    "lastPrice": ltp,
+                    "impliedVolatility": round(iv * 100, 2),
+                    "openInterest": row.get("open_interest", 0),
+                    **greeks
+                }
+            
+            strikes_processed.append({
+                "strikePrice": strike,
+                "CE": _wrap_leg(ce, spot, strike, T, "CE"),
+                "PE": _wrap_leg(pe, spot, strike, T, "PE")
+            })
+            
+        result = {
+            "symbol": symbol,
+            "spot": spot,
+            "expiry": target_expiry,
+            "strikes": sorted(strikes_processed, key=lambda x: x["strikePrice"]),
+            "source": "BROKER (Official Feed)",
+            "timestamp": datetime.now().isoformat()
+        }
+            
+        # Final Trimming: 10 OTM / 10 ITM around ATM
+        if result["strikes"]:
+            strikes = result["strikes"]
+            atm_idx = len(strikes) // 2
+            if spot > 0:
+                atm_diffs = [abs(s["strikePrice"] - spot) for s in strikes]
+                atm_idx = atm_diffs.index(min(atm_diffs))
+            
+            start_idx = max(0, atm_idx - 10)
+            end_idx = min(len(strikes), atm_idx + 11)
+            result["strikes"] = strikes[start_idx:end_idx]
+
         return JSONResponse(result)
     except Exception as e:
         return JSONResponse({"error": str(e), "source": "unavailable"})
 
 @app.get("/api/greeks/portfolio")
-async def api_greeks_portfolio():
+async def api_greeks_portfolio(symbol: str = ""):
     broker = _get_breeze()
     loop = asyncio.get_event_loop()
     try:
         positions = await loop.run_in_executor(_executor, broker.get_positions)
-        # Filter F&O positions
+        # Filter F&O positions and filter by symbol if provided
         fno_positions = [p for p in positions if p.get("segment") == "fno" or (p.get("strike") and p.get("right"))]
+        
+        if symbol:
+            target_sym = symbol.upper()
+            fno_positions = [p for p in fno_positions if p.get("symbol", "").upper() == target_sym or p.get("stock_code", "").upper() == target_sym]
         
         enriched_legs = []
         net_delta, net_gamma, net_theta, net_vega = 0, 0, 0, 0
@@ -1462,8 +1539,20 @@ async def api_greeks_portfolio():
             symbol_groups[sym].append(p)
             
         for sym, sym_positions in symbol_groups.items():
-            chain = await loop.run_in_executor(_executor, lambda: greeks_fetcher.fetch_option_chain(sym))
-            if "error" not in chain:
+            try:
+                chain = await loop.run_in_executor(_executor, lambda: greeks_fetcher.fetch_option_chain(sym))
+                # Fallback check for BSE or NSE errors
+                if "error" in chain or not chain.get("strikes"):
+                    print(f"[app.py] Portfolio: NSE data unavailable for {sym}, using broker fallback...")
+                    # We will try to at least get LTPs from broker for these positions
+                    for p in sym_positions:
+                        try:
+                            exch = _get_exchange(sym)
+                            ltp = await loop.run_in_executor(_executor, lambda: broker.get_ltp(sym, exchange=exch))
+                            enriched_legs.append({**p, "ltp": ltp, "delta": 0, "theta": 0, "net_delta": 0, "net_theta": 0})
+                        except: enriched_legs.append(p)
+                    continue
+
                 for p in sym_positions:
                     try:
                         strike_price = float(p.get("strike", 0))
@@ -1472,8 +1561,6 @@ async def api_greeks_portfolio():
                         strike_data = min(chain["strikes"], key=lambda x: abs(x["strikePrice"] - strike_price))
                         leg_greeks = strike_data[opt_type]
                         
-                        # In ICICI Breeze, quantity is usually positive for buy and negative for sell in some contexts, 
-                        # but check broker implementation. Usually quantity in positions is net.
                         qty = float(p.get("quantity", 0))
                         
                         enriched_leg = {
@@ -1494,7 +1581,8 @@ async def api_greeks_portfolio():
                         net_vega += enriched_leg["net_vega"]
                     except:
                         enriched_legs.append(p)
-            else:
+            except Exception as e:
+                print(f"[app.py] Position processing error for {sym}: {e}")
                 enriched_legs.extend(sym_positions)
 
         # Interpretations

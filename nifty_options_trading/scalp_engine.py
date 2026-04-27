@@ -24,8 +24,14 @@ class LevelEngine:
         
         df = df.copy()
         if "datetime" in df.columns:
-            df["datetime"] = pd.to_datetime(df["datetime"])
+            df["datetime"] = pd.to_datetime(df["datetime"], errors='coerce')
+            df.dropna(subset=["datetime"], inplace=True)
             df.set_index("datetime", inplace=True)
+        
+        # Ensure OHLC columns are numeric
+        for col in ["open", "high", "low", "close", "volume"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         # 1. PDH / PDL (Yesterday)
         all_dates = sorted(np.unique(df.index.date))
@@ -54,12 +60,12 @@ class LevelEngine:
             orb_low = today_df["low"].iloc[:3].min() if len(today_df) >= 3 else today_df["low"].min()
             
         return {
-            "pdh": round(float(pdh), 2),
-            "pdl": round(float(pdl), 2),
-            "orb_high": round(float(orb_high), 2),
-            "orb_low": round(float(orb_low), 2),
-            "key_resistance": round(float(orb_high), 2), # Explicitly Opening Range High
-            "key_support": round(float(orb_low), 2)    # Explicitly Opening Range Low
+            "pdh": round(float(pdh or 0), 2),
+            "pdl": round(float(pdl or 0), 2),
+            "orb_high": round(float(orb_high or 0), 2),
+            "orb_low": round(float(orb_low or 0), 2),
+            "key_resistance": round(float(orb_high or 0), 2), # Explicitly Opening Range High
+            "key_support": round(float(orb_low or 0), 2)    # Explicitly Opening Range Low
         }
 
 class InstantDecisionEngine:
@@ -112,12 +118,12 @@ class InstantDecisionEngine:
         
         # Volume Spike
         avg_vol = float(df["volume"].tail(10).mean())
-        vol_spike = latest["volume"] > (avg_vol * 1.5)
+        vol_spike = bool(latest["volume"] > (avg_vol * 1.5))
         
         # Candle Strength
         candle_range = latest["high"] - latest["low"]
         candle_body = abs(latest["close"] - latest["open"])
-        strong_candle = candle_body > (0.6 * atr)
+        strong_candle = bool(candle_body > (0.6 * atr))
         
         # Levels
         levels = LevelEngine.get_levels(df)
@@ -130,8 +136,8 @@ class InstantDecisionEngine:
         
         # Flags for UI
         flags = {
-            "momentum": momentum_score >= 70,
-            "vwap": (spot > vwap), # Will be checked later for direction
+            "momentum": bool(momentum_score >= 70),
+            "vwap": bool(spot > vwap), # Will be checked later for direction
             "volume": vol_spike,
             "candle_strength": strong_candle,
             "oi_clear": True, # Default, will be checked below
@@ -148,15 +154,15 @@ class InstantDecisionEngine:
         
         # 2. Late / Exhausted Move
         total_move_3 = prev3["high"].max() - prev3["low"].min()
-        late_move = total_move_3 > (1.5 * atr)
+        late_move = bool(total_move_3 > (1.5 * atr))
         flags["late_move"] = late_move
         
         # 3. No Expansion Candle
-        no_expansion = candle_range < (1.2 * atr)
+        no_expansion = bool(candle_range < (1.2 * atr))
         
         # 4. VWAP Conflict
-        vwap_conflict_bull = spot < vwap
-        vwap_conflict_bear = spot > vwap
+        vwap_conflict_bull = bool(spot < vwap)
+        vwap_conflict_bear = bool(spot > vwap)
         
         # BLOCK CHECK
         if near_ce_wall or near_pe_wall:
@@ -229,12 +235,17 @@ def get_composite_scalp_view(symbol: str, timeframe: int, df: pd.DataFrame, chai
     nearest_ce_wall = 999999
     nearest_pe_wall = 0
     if chain_df is not None and not chain_df.empty:
-        spot = df.iloc[-1]["close"]
+        spot = float(df.iloc[-1]["close"])
         # Find strikes with max OI
-        ce_max_oi_strike = chain_df[chain_df["right"].str.upper().isin(["CALL", "CE"])].sort_values("open_interest", ascending=False).iloc[0]["strike_price"]
-        pe_max_oi_strike = chain_df[chain_df["right"].str.upper().isin(["PUT", "PE"])].sort_values("open_interest", ascending=False).iloc[0]["strike_price"]
-        nearest_ce_wall = float(ce_max_oi_strike)
-        nearest_pe_wall = float(pe_max_oi_strike)
+        calls = chain_df[chain_df["right"].str.upper().isin(["CALL", "CE"])]
+        puts = chain_df[chain_df["right"].str.upper().isin(["PUT", "PE"])]
+        
+        if not calls.empty:
+            ce_max_oi_strike = calls.sort_values("open_interest", ascending=False).iloc[0]["strike_price"]
+            nearest_ce_wall = float(ce_max_oi_strike or 999999)
+        if not puts.empty:
+            pe_max_oi_strike = puts.sort_values("open_interest", ascending=False).iloc[0]["strike_price"]
+            nearest_pe_wall = float(pe_max_oi_strike or 0)
 
     oi_data = {"nearest_ce_wall": nearest_ce_wall, "nearest_pe_wall": nearest_pe_wall}
     

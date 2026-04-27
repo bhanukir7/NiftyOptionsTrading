@@ -56,12 +56,12 @@ def get_option_chain(broker: BaseBroker, stock_code: str, expiry_date: str) -> p
             
         if all_chain_data:
             df = pd.DataFrame(all_chain_data)
-            df['strike_price'] = df['strike_price'].astype(float)
-            df['open_interest'] = df['open_interest'].astype(float)
+            df['strike_price'] = pd.to_numeric(df['strike_price'], errors='coerce').fillna(0)
+            df['open_interest'] = pd.to_numeric(df['open_interest'], errors='coerce').fillna(0)
             df['last_traded_price'] = pd.to_numeric(df.get('ltp', df.get('last_traded_price', 0)), errors='coerce')
             return df
         else:
-            print(f"Error fetching option chain. Ensure {expiry_date} is an exact NSE trading expiry date. API Response: {calls_response} / {puts_response}")
+            # Only print if not after hours or if session is actually valid
             return pd.DataFrame()
             
     except Exception as e:
