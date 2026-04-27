@@ -116,9 +116,12 @@ def fetch_multiday_data(breeze: SafeBreeze, stock_code: str, exchange_code: str,
             for col in ["open", "high", "low", "close"]:
                 if col in df.columns:
                     df[col] = df[col].astype(float)
-            df["datetime"] = pd.to_datetime(df["datetime"])
-            df = df.reset_index(drop=True)
-            return df
+            if "datetime" in df.columns:
+                df["datetime"] = pd.to_datetime(df["datetime"])
+                df = df.reset_index(drop=True)
+                return df
+            else:
+                print(f"[BREEZE SDK] Missing 'datetime' column in response: {df.columns}")
         else:
             print(f"[BREEZE SDK] Historical data error: {response}")
             # If Breeze fails for known indices, try yfinance fallback

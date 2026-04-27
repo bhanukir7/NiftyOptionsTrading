@@ -114,11 +114,14 @@ def fetch_multiday_data(breeze, stock_code: str, exchange_code: str, interval: s
             for col in ["open", "high", "low", "close", "volume"]:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            df["datetime"] = pd.to_datetime(df["datetime"], errors='coerce')
-            df = df.dropna(subset=["datetime"])
-            df = df.reset_index(drop=True)
-            df.attrs['source'] = 'Breeze'
-            return df
+            if "datetime" in df.columns:
+                df["datetime"] = pd.to_datetime(df["datetime"], errors='coerce')
+                df = df.dropna(subset=["datetime"])
+                df = df.reset_index(drop=True)
+                df.attrs['source'] = 'Breeze'
+                return df
+            else:
+                print(f"[BREEZE SDK] Missing 'datetime' column in success response: {df.columns}")
         else:
             print(f"[BREEZE SDK] Historical data error (V3): {response}")
             # Recovery for common symbols

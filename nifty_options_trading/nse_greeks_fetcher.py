@@ -13,7 +13,8 @@ class NSEGreeksFetcher:
             "Referer": "https://www.nseindia.com/"
         })
         self.cache = CacheManager()
-        self._init_session()
+        # We no longer auto-init NSE sessions to avoid timeouts. 
+        # The system now relies on official Broker data.
 
     def _init_session(self):
         """Initializes NSE session to get cookies."""
@@ -91,42 +92,8 @@ class NSEGreeksFetcher:
         return sigma
 
     def fetch_option_chain(self, symbol: str) -> dict:
-        """Fetches NSE option chain and calculates Greeks."""
-        s = symbol.upper()
-        # BSE Check
-        if s in ["BSESEN", "SENSEX", "BANKEX", "BSEX"]:
-            return {"error": f"{s} is a BSE symbol. NSE does not provide Greeks for BSE.", "source": "BSE (Unsupported)", "strikes": []}
-
-        cache_key = f"nse_chain_{s}"
-        cached_data = self.cache.get(cache_key)
-        if cached_data:
-            return cached_data
-
-        # Determine endpoint (indices vs equities)
-        is_index = s in ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]
-        base_url = "option-chain-indices" if is_index else "option-chain-equities"
-        url = f"https://www.nseindia.com/api/{base_url}?symbol={s}"
-        
-        data = None
-        source = "NSE"
-
-        for attempt in range(3):
-            try:
-                response = self.session.get(url, timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    break
-                elif response.status_code in [401, 403]:
-                    self._init_session()
-                    time.sleep(2)
-                else:
-                    time.sleep(2)
-            except Exception as e:
-                print(f"[NSEGreeksFetcher] Attempt {attempt+1} failed for {symbol}: {e}")
-                time.sleep(2)
-
-        if not data:
-            return {"error": "NSE API Unavailable", "source": "unavailable", "strikes": []}
+        """No longer fetches from NSE website. Relies on Broker fallbacks."""
+        return {"error": "NSE Website Fetching Disabled", "source": "unavailable", "strikes": []}
 
         try:
             records = data.get("records", {})
