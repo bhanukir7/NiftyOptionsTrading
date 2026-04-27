@@ -121,8 +121,6 @@ def fetch_multiday_data(breeze: SafeBreeze, stock_code: str, exchange_code: str,
         try:
             import yfinance as yf
             ticker = ticker_map.get(symbol.upper(), symbol.upper())
-            print(f"[FALLBACK] Attempting to fetch {ticker} from yfinance...")
-            
             yf_interval = {"5minute": "5m", "1day": "1d", "1minute": "1m"}.get(interval_str, "1d")
             data = yf.Ticker(ticker).history(period=f"{days}d", interval=yf_interval)
             if not data.empty:
@@ -132,17 +130,12 @@ def fetch_multiday_data(breeze: SafeBreeze, stock_code: str, exchange_code: str,
                 df.rename(columns=rename_map, inplace=True)
                 if 'datetime' in df.columns:
                     df['datetime'] = pd.to_datetime(df['datetime'])
-                print(f"[SUCCESS] Received {len(df)} candles from yfinance for {ticker}.")
                 return df
-        except Exception as e:
-            print(f"[FALLBACK ERROR] yfinance failed for {symbol}: {e}")
+        except Exception:
+            pass
         return pd.DataFrame()
 
-    # If BSE, force yfinance immediately
-    if exchange_code.upper() == "BSE":
-        return try_yf_fallback(stock_code, interval, days_back)
-
-    # For NSE, try Breeze first
+    # Try Breeze for all exchanges first
     try:
         now_dt = datetime.now()
         iso_date = now_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z") 
@@ -170,7 +163,6 @@ def fetch_multiday_data(breeze: SafeBreeze, stock_code: str, exchange_code: str,
             print(f"[BREEZE SDK] Historical data error (Global): {response}")
             # Recovery for known indices
             if stock_code.upper() in ticker_map:
-                print(f"[RECOVERY] Global Primary fetch failed. Switching to yfinance for {stock_code}...")
                 return try_yf_fallback(stock_code, interval, days_back)
         return pd.DataFrame()
     except Exception as e:

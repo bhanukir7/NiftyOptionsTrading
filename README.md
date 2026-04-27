@@ -1,6 +1,21 @@
+**Release Version 4.1** — *April 27, 2026, 12:00 PM IST* (Scanning Engine Stabilization)
 **Release Version 4.0** — *April 26, 2026, 04:45 AM IST* (Morning Trade & Resilience Overhaul)
 **Release Version 3.2** — *April 25, 2026, 11:20 PM IST*
 **Release Version 3.1** — *April 25, 2026, 02:40 PM IST*
+
+## 🚀 Version 4.1: The Scanning Engine Stabilization
+
+This minor release focuses on stabilizing the autonomous scanning engine and improving data reliability across the dashboard and Signal Hub.
+
+### Key 4.1 Improvements:
+- **⚡ Extended Scanner History**: Upgraded the `AutonomousEngine` to fetch 7 days of 5-minute historical data (instead of just today's), ensuring technical indicators like ATR and EMA are fully calculated even at market open.
+- **🛡️ Data Safety Guards**: Implemented a mandatory length check (`len(df) < 50`) in the scanning loop to gracefully skip illiquid or newly listed symbols, preventing "Index Out of Bounds" crashes.
+- **📡 Silent yfinance Recovery**: Silenced all `[FALLBACK]` and `[SUCCESS]` logs for `yfinance` calls. These now run as silent background recovery tasks, preventing console spam from affecting the Signal Hub UI performance.
+- **📍 Intelligent BSE Fetching**: Optimized the hybrid pipeline to try the primary broker (Breeze) first for all exchanges (including BSE), with a silent failover to `yfinance` only when necessary.
+- **📍 Real-Time LTP API**: Added a dedicated `/api/ ltp` endpoint with automated historical fallback to guarantee live spot price visibility in the dashboard simulator, even during broker maintenance or data gaps.
+- **🛠️ Service Resilience**: Added missing `timedelta` imports and hardened the `_analyze_symbol` loop against null responses from the broker API.
+
+---
 
 ## 🌅 Version 4.0: The Morning Trade & Resilience Overhaul
 

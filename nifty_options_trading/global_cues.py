@@ -154,8 +154,8 @@ def fetch_world_markets(ignore_cache: bool = False) -> dict:
                     "direction": "up" if chg > 0.02 else "down" if chg < -0.02 else "flat",
                     "source": "yfinance"
                 })
-            except Exception as e:
-                print(f"yfinance error for {name} ({ticker}): {e}")
+            except Exception:
+                pass
 
         if final_markets:
             cache_result = {

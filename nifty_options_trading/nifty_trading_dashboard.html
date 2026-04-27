@@ -2947,17 +2947,21 @@
           if (ltpData.ltp > 0) {
             baseNiftySpot = ltpData.ltp;
           } else {
-            // Fallback to 23900 (nearest round) if LTP fails on weekend
-            baseNiftySpot = parseFloat(g('v3-spot')?.textContent?.replace('₹', '').replace(',', '')) || 23900;
+            // Try to pull from V3 metric if already analyzed
+            const v3SpotText = g('v3-spot')?.textContent?.replace('₹', '').replace(',', '');
+            baseNiftySpot = parseFloat(v3SpotText) || 0;
           }
         } catch { 
-          baseNiftySpot = 23900; 
+          baseNiftySpot = 0; 
         }
         
-        g('sim-spot-ref').textContent = baseNiftySpot.toFixed(2);
-        // On first load or if currently 23800, update to real spot
-        if (g('sim-spot-proj').value === '' || g('sim-spot-proj').value === '23800.00') {
-          g('sim-spot-proj').value = baseNiftySpot.toFixed(2);
+        g('sim-spot-ref').textContent = baseNiftySpot > 0 ? baseNiftySpot.toFixed(2) : "Fetching...";
+        // On first load or if currently uninitialized, update to real spot
+        const currentProj = g('sim-spot-proj').value;
+        if (currentProj === '' || currentProj === '0' || currentProj === '23800.00' || currentProj === '23900.00') {
+          if (baseNiftySpot > 0) {
+            g('sim-spot-proj').value = baseNiftySpot.toFixed(2);
+          }
         }
         
         renderPositions(currentPositions);

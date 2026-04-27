@@ -260,6 +260,36 @@ async def api_positions():
         return JSONResponse({"positions": [], "error": str(e)})
 
 
+@app.get("/api/ltp")
+async def api_ltp(symbol: str = "NIFTY"):
+    broker = _get_breeze()
+    loop = asyncio.get_event_loop()
+    try:
+        # Resolve exchange and handle BSE indices
+        exchange = _get_exchange(symbol)
+        # Some brokers/apis expect the index code (e.g. NIFTY) to be used with get_ltp
+        ltp = await loop.run_in_executor(
+            _executor, lambda: broker.get_ltp(symbol.upper(), exchange=exchange)
+        )
+        
+        # Fallback for indices if LTP is 0 (Breeze get_quotes can be flaky for indices)
+        if ltp == 0:
+            print(f"[DEBUG] LTP for {symbol} returned 0, trying historical fallback...")
+            from nifty_options_trading.evaluate_contract_V3 import fetch_multiday_data
+            cash_sym = _get_cash_symbol(symbol)
+            df = await loop.run_in_executor(
+                _executor, lambda: fetch_multiday_data(broker, cash_sym, exchange, "1minute", days_back=1)
+            )
+            if not df.empty:
+                ltp = float(df.iloc[-1]["close"])
+                print(f"[DEBUG] Fallback LTP for {symbol}: {ltp}")
+
+        return JSONResponse({"symbol": symbol.upper(), "ltp": ltp})
+    except Exception as e:
+        print(f"[ERROR] /api/ltp failed for {symbol}: {e}")
+        return JSONResponse({"symbol": symbol.upper(), "ltp": 0, "error": str(e)})
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Helper: Get Exchange for Symbol
 # ══════════════════════════════════════════════════════════════════════════════

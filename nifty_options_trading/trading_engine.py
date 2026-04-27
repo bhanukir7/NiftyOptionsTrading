@@ -11,7 +11,7 @@ import os
 import time
 import threading
 import logging
-from datetime import datetime, time as dt_time
+from datetime import datetime, time as dt_time, timedelta
 from collections import deque
 from typing import Dict, List, Optional, Literal, Tuple
 
@@ -147,12 +147,12 @@ class AutonomousEngine:
 
     def _analyze_symbol(self, symbol: str):
         try:
-            # 1. Fetch Technical Data (from 5min historical)
-            today_start = datetime.now().strftime("%Y-%m-%dT00:00:00.000Z")
+            # 1. Fetch Technical Data (from 5min historical - fetch last 7 days to ensure indicator stability)
+            from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%dT00:00:00.000Z")
             hist_res = self.breeze.get_historical_data(
                 stock_code=symbol,
                 interval="5minute", 
-                from_date=today_start,
+                from_date=from_date,
                 to_date=datetime.now().strftime("%Y-%m-%dT%H:%M:%S.000Z"),
                 exchange_code=self.exchange,
                 product_type="cash"
@@ -160,6 +160,9 @@ class AutonomousEngine:
             if not hist_res or hist_res.get("Status") != 200 or not hist_res.get("Success"): return
             
             df = pd.DataFrame(hist_res["Success"])
+            if len(df) < 50:
+                # self.log(f"Skipping {symbol}: Insufficient data ({len(df)} candles)")
+                return
             for col in ["open", "high", "low", "close", "volume"]:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
